@@ -1,0 +1,24 @@
+# FV DIGITAL - URLs amigables del sitio
+# Rutas cortas para que tus clientes accedan fácil:
+#   /login_app/clientes                     -> Portal de clientes (panel)
+#   /login_app/clientes/mis-solicitudes     -> Mis solicitudes
+#   /login_app/clientes/chat                -> Chat con el negocio
+#   /login_app/clientes/juegos              -> Mini-juegos
+#   /login_app/acceso                       -> Iniciar sesión
+#   /login_app/crear-cuenta                 -> Registro
+Options -MultiViews
+RewriteEngine On
+
+# Acceso corto al portal de clientes (se reescribe internamente a /portal)
+RewriteRule ^clientes/?$      portal/index.php [L,QSA]
+RewriteRule ^clientes/(.*)$   portal/$1       [L,QSA]
+
+RewriteRule ^acceso/?$         iniciar-sesion.php [L,QSA]
+RewriteRule ^crear-cuenta/?$   registro.php       [L,QSA]
+RewriteRule ^recuperar-password/?$ recuperar.php  [L,QSA]
+RewriteRule ^solicitud-empresa/?$ solicitud-empresa.php [L,QSA]
+
+# Cualquier ruta que apunte a un archivo o carpeta real se sirve tal cual
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]

@@ -1,0 +1,19 @@
+.admin-body { background: #f0f4fa; }
+.admin-sidebar {
+    background: linear-gradient(180deg, #071c3d, #0a3d8f); color: #cfe1ff; min-height: 100vh;
+}
+.admin-sidebar .logo { padding: 1.1rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,.1); }
+.admin-sidebar .nav-link {
+    color: #cfe1ff; border-radius: 10px; margin: 2px 12px; padding: .6rem .9rem; font-size: .92rem; font-weight: 500;
+}
+.admin-sidebar .nav-link:hover { background: rgba(255,255,255,.08); color: #fff; }
+.admin-sidebar .nav-link.active { background: var(--azul, #0b5ed7); color: #fff; }
+.admin-sidebar .nav-link .bi { margin-right: .6rem; }
+.contenido-admin { min-height: 100vh; }
+.topbar-admin { background: #fff; border-bottom: 1px solid #e3eaf5; }
+.estadistica { border-radius: 14px; border: 1px solid #e3eaf5; }
+.estadistica .icono { width: 48px; height: 48px; border-radius: 12px; font-size: 1.3rem; display: inline-flex; align-items: center; justify-content: center; }
+.tabla-admin th { font-size: .75rem; text-transform: uppercase; letter-spacing: .6px; color: #5b6b82; }
+.tabla-admin td { vertical-align: middle; font-size: .9rem; }
+.miniatura { width: 70px; height: 48px; object-fit: cover; border-radius: 8px; background: #e8f0fe; }
+.badge-estado { font-size: .72rem; padding: .35em .7em; border-radius: 50rem; }

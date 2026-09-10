@@ -1,0 +1,153 @@
+/* ============================================================
+   FV DIGITAL - Portal de clientes
+   ============================================================ */
+
+.portal-body { background: #eef3fa; }
+
+/* ---------- Navegación del portal ---------- */
+.portal-nav { background: #fff; }
+.portal-nav .nav-link.active { color: var(--azul, #0b5ed7); font-weight: 600; }
+.portal-nav .notif-dot { font-size: .62rem; vertical-align: 1px; }
+.portal-nav .logged { color: #fff; }
+
+.portal-main { min-height: calc(100vh - 130px); }
+
+.portal-footer {
+    background: var(--azul-muy-oscuro, #071c3d);
+    color: #cfe1ff;
+}
+.portal-footer a { color: var(--acento, #16b8f3); }
+.portal-footer a:hover { color: #fff; }
+
+/* ---------- Tarjetas ---------- */
+.portal-card { border-radius: 14px; transition: transform .22s ease, box-shadow .22s ease; }
+.portal-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(11,94,215,.12); }
+
+.portal-icon { width: 52px; height: 52px; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+.portal-icon i { font-size: 1.7rem; }
+
+/* ---------- Notificaciones ---------- */
+.portal-notif li {
+    display: flex; align-items: flex-start; gap: .55rem;
+    padding: .7rem .6rem; border-bottom: 1px dashed var(--borde, #e3eaf5);
+}
+.portal-notif li:last-child { border-bottom: 0; }
+.portal-notif li > i { font-size: 1.05rem; margin-top: .15rem; color: var(--gris, #5b6b82); }
+.portal-notif li.no-leida {
+    background: var(--azul-suave, #e8f0fe);
+    border-radius: 10px;
+    position: relative;
+}
+.portal-notif li.no-leida::after {
+    content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 4px; height: calc(100% - 1.1rem); border-radius: 0 4px 4px 0; background: var(--azul, #0b5ed7);
+}
+.portal-notif li.no-leida > i { color: var(--azul, #0b5ed7); }
+
+/* ---------- Línea de tiempo de solicitudes ---------- */
+.timeline { position: relative; padding-left: 1.4rem; }
+.timeline::before {
+    content: ""; position: absolute; left: 15px; top: 8px; bottom: 8px;
+    width: 2px; background: linear-gradient(180deg, var(--azul, #0b5ed7), #d5e3f8);
+}
+.hito { display: flex; gap: .85rem; position: relative; padding-bottom: 1rem; }
+.hito:last-child { padding-bottom: 0; }
+.hito-punto {
+    flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%;
+    background: #fff; border: 2px solid #c7d8f2; color: #7d93b8;
+    display: flex; align-items: center; justify-content: center; font-size: .85rem; z-index: 1;
+}
+.hito.actual .hito-punto {
+    background: var(--azul, #0b5ed7); border-color: var(--azul, #0b5ed7); color: #fff;
+    box-shadow: 0 0 0 4px rgba(11,94,215,.18);
+}
+.hito-cuerpo b { font-size: .9rem; }
+
+/* ---------- Chat del portal ---------- */
+.avatar-circulo {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--azul-suave, #e8f0fe);
+    color: var(--azul-oscuro, #0a3d8f); font-weight: 700; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+.chat-caja {
+    height: 420px; overflow-y: auto; padding: 1.1rem;
+    background: linear-gradient(180deg, #f5f8fd, #eef3fa);
+    display: flex; flex-direction: column; gap: .6rem;
+}
+
+.burbuja {
+    max-width: 78%; padding: .6rem 1rem; border-radius: 16px;
+    font-size: .92rem; word-break: break-word; box-shadow: 0 2px 8px rgba(7,28,61,.06);
+}
+.burbuja small { font-size: .68rem; }
+.burbuja.mia {
+    align-self: flex-end; background: var(--azul, #0b5ed7); color: #fff;
+    border-bottom-right-radius: 4px;
+}
+.burbuja.mia small { color: #cfe1ff; }
+.burbuja.suya {
+    align-self: flex-start; background: #fff; color: #22324a;
+    border: 1px solid var(--borde, #e3eaf5); border-bottom-left-radius: 4px;
+}
+
+/* ---------- Chat del administrador ---------- */
+.chat-admin-caja {
+    max-height: 440px; overflow-y: auto; padding: 1rem;
+    background: linear-gradient(180deg, #f5f8fd, #eef3fa);
+    border-radius: 12px; display: flex; flex-direction: column; gap: .6rem;
+}
+.chat-admin-caja .burbuja { max-width: 85%; }
+
+/* ---------- Memorama ---------- */
+.mem-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem;
+    max-width: 400px; margin: 0 auto; perspective: 900px;
+}
+.mem-card {
+    position: relative; height: 80px; cursor: pointer;
+    transform-style: preserve-3d; transition: transform .35s ease;
+    border-radius: 12px;
+}
+.mem-card.volteada { transform: rotateY(180deg); }
+.mem-card.bloqueada { cursor: default; }
+.mem-card .cara {
+    position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    font-size: 1.9rem; user-select: none;
+}
+.mem-card .atras {
+    background: linear-gradient(145deg, #0a3d8f, #0b5ed7); color: #fff;
+    font-size: 1.25rem; box-shadow: 0 6px 14px rgba(11,94,215,.25);
+}
+.mem-card .atras i { filter: drop-shadow(0 2px 4px rgba(0,0,0,.25)); }
+.mem-card .frente {
+    background: #fff; border: 2px solid #c7d8f2; transform: rotateY(180deg);
+    box-shadow: 0 6px 14px rgba(7,28,61,.10);
+}
+.mem-card.encontrada .frente {
+    background: #e8f9f1; border-color: #57c98d;
+    animation: mem-enc .45s ease;
+}
+.mem-card.encontrada { cursor: default; }
+@keyframes mem-enc {
+    0% { transform: rotateY(180deg) scale(1); }
+    35% { transform: rotateY(180deg) scale(1.12); }
+    100% { transform: rotateY(180deg) scale(1); }
+}
+
+/* ---------- Avisos centrados: estilos compartidos en estilos.css ---------- */
+@keyframes fv-latido {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+}
+
+/* ---------- Utilidades del portal ---------- */
+.mb-0-chat:empty { display: none; }
+
+@media (max-width: 575.98px) {
+    .mem-grid { grid-template-columns: repeat(4, 1fr); gap: .45rem; }
+    .mem-card { height: 68px; }
+    .burbuja { max-width: 92%; }
+    .chat-caja { height: 340px; }
+}

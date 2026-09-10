@@ -1,10 +1,9 @@
 <?php
-require_once __DIR__ . '/funciones.php';
+require_once __DIR__ . '/../funciones.php';
 iniciar_sesion_segura();
-retorno_guardar();
 
 if (esta_logueado()) {
-    header('Location: ' . retorno_usar(destino_segun_rol()));
+    header('Location: ' . destino_segun_rol());
     exit;
 }
 
@@ -45,8 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'rol'    => 'cliente',
                 ];
                 login_ok($nuevo);
-                flash('¡Cuenta creada! Bienvenido a tu portal de FV Digital.');
-                header('Location: ' . retorno_usar('portal/index.php'));
+                notificar((int)$nuevo['id'], 'bienvenida_portal', '¡Bienvenido a tu portal!',
+                    'Aquí puedes seguir tus solicitudes, chatear con nosotros y jugar mientras esperas.', 'index.php');
+                header('Location: index.php');
                 exit;
             } catch (PDOException $e) {
                 if ($e->getCode() === '23000') {
@@ -64,11 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crear cuenta — <?= e(SITE_NOMBRE) ?></title>
+    <title>Crear cuenta — Portal <?= e(SITE_NOMBRE) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="assets/css/estilos.css">
-    <link rel="icon" type="image/png" href="assets/img/logo.png">
+    <link rel="stylesheet" href="../assets/css/estilos.css">
+    <link rel="stylesheet" href="../assets/css/portal.css">
+    <link rel="icon" type="image/png" href="../assets/img/logo.png">
     <style>
         body { background: linear-gradient(135deg,#071c3d 0%,#0a3d8f 55%,#0e5bd0 100%); min-height:100vh; }
         .card-gral { max-width:460px; border-radius:18px; border:0; }
@@ -79,20 +80,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="d-flex align-items-center justify-content-center p-3">
     <div class="d-flex flex-column align-items-center w-100">
-        <a href="index.php" class="d-flex align-items-center gap-2 text-white text-decoration-none mb-4">
-            <img src="assets/img/logo.png" alt="" style="height:52px;width:auto;object-fit:contain;" class="rounded">
+        <a href="../index.php" class="d-flex align-items-center gap-2 text-white text-decoration-none mb-4">
+            <img src="../assets/img/logo.png" alt="" style="height:52px;width:auto;object-fit:contain;" class="rounded">
             <span class="fs-4 fw-bold"><?= e(SITE_NOMBRE) ?></span>
+            <span class="badge bg-white text-primary">Portal</span>
         </a>
 
         <div class="card card-gral shadow-lg w-100">
             <div class="card-body p-4 p-md-5">
                 <div class="mini-nav mb-4">
-                    <a href="iniciar-sesion.php"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>
+                    <a href="login.php"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>
                     <a href="registro.php" class="act"><i class="bi bi-person-plus me-1"></i>Crear cuenta</a>
                 </div>
 
                 <h4 class="fw-bold mb-1">Crea tu cuenta gratis</h4>
-                <p class="text-muted small mb-4">Guarda tus datos, da seguimiento a tus cotizaciones y recibe beneficios personalizados.</p>
+                <p class="text-muted small mb-4">Da seguimiento a tus cotizaciones, chatea con nosotros y recibe beneficios personalizados.</p>
 
                 <?php if ($error): ?>
                     <div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle me-1"></i><?= e($error) ?></div>
@@ -101,11 +103,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <form method="POST" action="registro.php" novalidate>
                     <?= campo_csrf() ?>
                     <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
-                    <?php if (!empty($_SESSION['retorno'])): ?>
-                        <input type="hidden" name="retorno" value="<?= e(ltrim($_SESSION['retorno'], '/')) ?>">
-                    <?php elseif (!empty($_GET['retorno'])): ?>
-                        <input type="hidden" name="retorno" value="<?= e(trim($_GET['retorno'])) ?>">
-                    <?php endif; ?>
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Nombre completo *</label>
                         <input type="text" name="nombre" class="form-control" required value="<?= e($valores['nombre']) ?>" placeholder="Ej. Juan Pérez">
@@ -125,19 +122,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="col-6 mb-3">
                             <label class="form-label small fw-semibold">Confirmar *</label>
-                            <input type="password" name="confirmar" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Repite tu contraseña">
+                            <input type="password" name="confirmar" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Repite la contraseña">
                         </div>
                     </div>
                     <button type="submit" class="btn btn-fv w-100 py-2"><i class="bi bi-person-check me-1"></i>Crear mi cuenta</button>
                 </form>
 
                 <p class="text-center small text-muted mt-4 mb-0">
-                    ¿Ya tienes cuenta? <a href="iniciar-sesion.php" class="fw-semibold" style="color:#0a3d8f;">Inicia sesión</a>
+                    ¿Ya tienes cuenta? <a href="login.php" class="fw-semibold" style="color:#0a3d8f;">Inicia sesión</a>
                 </p>
             </div>
         </div>
 
-        <a href="index.php" class="text-white-50 text-decoration-none small mt-3"><i class="bi bi-arrow-left me-1"></i>Volver al sitio</a>
+        <a href="../index.php" class="text-white-50 text-decoration-none small mt-3"><i class="bi bi-arrow-left me-1"></i>Volver al sitio</a>
     </div>
 </body>
 </html>

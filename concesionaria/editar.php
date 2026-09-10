@@ -1,11 +1,11 @@
-<?php
+﻿<?php
 session_start();
 if (!isset($_SESSION['usuario_id'])) {
-    header('Location: index.php');
+    header('Location: login.php');
     exit;
 }
 
-require_once 'conexion.php';
+require_once '../conexion.php';
 
 $id = (int)($_GET['id'] ?? 0);
 $stmt = $pdo->prepare("SELECT * FROM vehiculos WHERE id = ?");
@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: dashboard.php');
         exit;
     } catch (PDOException $e) {
-        $error = 'Ocurrió un error al actualizar los datos.';
+        $error = 'OcurriÃ³ un error al actualizar los datos.';
     }
 }
 ?>
@@ -41,14 +41,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Editar Vehículo</title>
+    <title>Editar VehÃ­culo</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light py-5">
 <div class="container" style="max-width: 650px;">
     <div class="card shadow-sm border-0">
         <div class="card-body p-4">
-            <h4 class="fw-bold mb-3">Editar Vehículo (VIN: <?= htmlspecialchars($auto['vin']) ?>)</h4>
+            <h4 class="fw-bold mb-3">Editar VehÃ­culo (VIN: <?= htmlspecialchars($auto['vin']) ?>)</h4>
             <?php if ($error): ?>
                 <div class="alert alert-danger"><?= $error ?></div>
             <?php endif; ?>
@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <input type="text" name="modelo" class="form-control" value="<?= htmlspecialchars($auto['modelo']) ?>" required>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label small fw-semibold">Año</label>
+                        <label class="form-label small fw-semibold">AÃ±o</label>
                         <input type="number" name="anio" class="form-control" value="<?= $auto['anio'] ?>" required>
                     </div>
                     <div class="col-md-4">

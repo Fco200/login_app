@@ -1,16 +1,16 @@
-<?php
+﻿<?php
 session_start();
 if (!isset($_SESSION['usuario_id'])) {
-    header('Location: index.php');
+    header('Location: login.php');
     exit;
 }
 
-require_once 'conexion.php';
+require_once '../conexion.php';
 
 $mensaje = '';
 $tipoMensaje = '';
 
-// Procesar alta de nuevo vehículo
+// Procesar alta de nuevo vehÃ­culo
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'crear') {
     $vin         = strtoupper(trim($_POST['vin']));
     $marca       = trim($_POST['marca']);
@@ -24,15 +24,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     try {
         $stmt = $pdo->prepare("INSERT INTO vehiculos (vin, marca, modelo, anio, color, kilometraje, precio, estado, creado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$vin, $marca, $modelo, $anio, $color, $kilometraje, $precio, $estado, $_SESSION['usuario_id']]);
-        $mensaje = "Vehículo agregado al inventario exitosamente.";
+        $mensaje = "VehÃ­culo agregado al inventario exitosamente.";
         $tipoMensaje = "success";
     } catch (PDOException $e) {
-        $mensaje = "Error al registrar vehículo (verifica si el VIN está duplicado).";
+        $mensaje = "Error al registrar vehÃ­culo (verifica si el VIN estÃ¡ duplicado).";
         $tipoMensaje = "danger";
     }
 }
 
-// Búsqueda y filtrado
+// BÃºsqueda y filtrado
 $busqueda = trim($_GET['q'] ?? '');
 if ($busqueda !== '') {
     $sql = "SELECT * FROM vehiculos WHERE vin LIKE ? OR marca LIKE ? OR modelo LIKE ? ORDER BY id DESC";
@@ -44,7 +44,7 @@ if ($busqueda !== '') {
     $vehiculos = $pdo->query("SELECT * FROM vehiculos ORDER BY id DESC")->fetchAll();
 }
 
-// Métricas de inventario
+// MÃ©tricas de inventario
 $totalAutos = count($vehiculos);
 $disponibles = 0;
 $valorTotal = 0;
@@ -64,7 +64,7 @@ foreach ($vehiculos as $v) {
 </head>
 <body class="bg-light">
 
-<!-- Barra de navegación -->
+<!-- Barra de navegaciÃ³n -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
     <div class="container-fluid px-4">
         <a class="navbar-brand fw-bold" href="dashboard.php">
@@ -92,7 +92,7 @@ foreach ($vehiculos as $v) {
         </div>
     <?php endif; ?>
 
-    <!-- Tarjetas de Métricas -->
+    <!-- Tarjetas de MÃ©tricas -->
     <div class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card border-0 shadow-sm p-3">
@@ -135,7 +135,7 @@ foreach ($vehiculos as $v) {
         </div>
     </div>
 
-    <!-- Barra de acciones y búsqueda -->
+    <!-- Barra de acciones y bÃºsqueda -->
     <div class="card border-0 shadow-sm mb-4">
         <div class="card-body d-flex flex-column flex-md-row justify-content-between gap-3">
             <form class="d-flex gap-2 w-100 w-md-50" method="GET" action="dashboard.php">
@@ -150,12 +150,12 @@ foreach ($vehiculos as $v) {
             </form>
 
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalCrear">
-                <i class="bi bi-plus-circle me-1"></i> Nuevo Vehículo
+                <i class="bi bi-plus-circle me-1"></i> Nuevo VehÃ­culo
             </button>
         </div>
     </div>
 
-    <!-- Tabla de vehículos -->
+    <!-- Tabla de vehÃ­culos -->
     <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -163,8 +163,8 @@ foreach ($vehiculos as $v) {
                     <thead class="table-light">
                         <tr>
                             <th class="ps-3">VIN / Serie</th>
-                            <th>Vehículo</th>
-                            <th>Año</th>
+                            <th>VehÃ­culo</th>
+                            <th>AÃ±o</th>
                             <th>Color</th>
                             <th>Kilometraje</th>
                             <th>Precio (MXN)</th>
@@ -175,7 +175,7 @@ foreach ($vehiculos as $v) {
                     <tbody>
                         <?php if (count($vehiculos) === 0): ?>
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">No se encontraron vehículos en el inventario.</td>
+                                <td colspan="8" class="text-center py-4 text-muted">No se encontraron vehÃ­culos en el inventario.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($vehiculos as $auto): ?>
@@ -202,7 +202,7 @@ foreach ($vehiculos as $v) {
                                             <i class="bi bi-pencil"></i>
                                         </a>
                                         <?php if ($_SESSION['rol'] === 'admin'): ?>
-                                            <a href="eliminar.php?id=<?= $auto['id'] ?>" class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Seguro que deseas dar de baja este vehículo?')">
+                                            <a href="eliminar.php?id=<?= $auto['id'] ?>" class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('Â¿Seguro que deseas dar de baja este vehÃ­culo?')">
                                                 <i class="bi bi-trash"></i>
                                             </a>
                                         <?php endif; ?>
@@ -217,19 +217,19 @@ foreach ($vehiculos as $v) {
     </div>
 </div>
 
-<!-- Modal para Crear Vehículo -->
+<!-- Modal para Crear VehÃ­culo -->
 <div class="modal fade" id="modalCrear" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form action="dashboard.php" method="POST">
                 <input type="hidden" name="accion" value="crear">
                 <div class="modal-header">
-                    <h5 class="modal-title fw-bold">Dar de Alta Vehículo</h5>
+                    <h5 class="modal-title fw-bold">Dar de Alta VehÃ­culo</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body row g-3">
                     <div class="col-md-6">
-                        <label class="form-label small fw-semibold">Número de Serie (VIN)</label>
+                        <label class="form-label small fw-semibold">NÃºmero de Serie (VIN)</label>
                         <input type="text" name="vin" class="form-control" required placeholder="Ej. 3VW1K7AJ8EM123456">
                     </div>
                     <div class="col-md-3">
@@ -241,7 +241,7 @@ foreach ($vehiculos as $v) {
                         <input type="text" name="modelo" class="form-control" required placeholder="Ej. Jetta">
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label small fw-semibold">Año</label>
+                        <label class="form-label small fw-semibold">AÃ±o</label>
                         <input type="number" name="anio" class="form-control" min="1990" max="2027" value="2023" required>
                     </div>
                     <div class="col-md-3">

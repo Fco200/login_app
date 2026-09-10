@@ -12,7 +12,7 @@ try {
     // Borrar si ya existe para evitar error por clave duplicada
     $pdo->prepare("DELETE FROM usuarios WHERE email = ?")->execute([$email]);
 
-    $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, 'admin')");
     $stmt->execute([$nombre, $email, $passwordHash]);
 
     echo "<h3>¡Usuario creado con éxito!</h3>";
