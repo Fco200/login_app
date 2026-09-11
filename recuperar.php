@@ -7,33 +7,21 @@ if (esta_logueado()) {
     exit;
 }
 
-$PREGUNTAS = [
-    ['p' => '¿Cuál es el planeta más cercano al Sol?',
-     'o' => ['Venus', 'Mercurio', 'Marte', 'Urano'],
-     'r' => 1],
-    ['p' => '¿Quién pintó la Mona Lisa?',
-     'o' => ['Miguel Ángel', 'Pablo Picasso', 'Leonardo da Vinci', 'Vincent van Gogh'],
-     'r' => 2],
-    ['p' => '¿Cuál es el océano más grande del mundo?',
-     'o' => ['Atlántico', 'Índico', 'Pacífico', 'Ártico'],
-     'r' => 2],
-    ['p' => '¿En qué año llegó Cristóbal Colón a América?',
-     'o' => [1492, 1521, 1453, 1776],
-     'r' => 0],
-    ['p' => '¿Cuál es el país más poblado del mundo?',
-     'o' => ['China', 'India', 'Estados Unidos', 'Brasil'],
-     'r' => 1],
-    ['p' => '¿Cuál es el símbolo químico del oro?',
-     'o' => ['Ag', 'Au', 'Fe', 'Or'],
-     'r' => 1],
-];
-
-if (!isset($_SESSION['recupera_q']) || !isset($PREGUNTAS[$_SESSION['recupera_q']])) {
-    $_SESSION['recupera_q'] = array_rand($PREGUNTAS);
+/* ---------- CAPTCHA matemático sencillo (más fácil que la pregunta) ---------- */
+function generar_captcha(): array {
+    $a = random_int(3, 12);
+    $b = random_int(2, 9);
+    $_SESSION['recupera_captcha'] = $a + $b;
+    return ['a' => $a, 'b' => $b];
 }
-$qIdx = (int)$_SESSION['recupera_q'];
+if (!isset($_SESSION['recupera_captcha'])) {
+    generar_captcha();
+}
+$captcha = ['a' => random_int(3, 12), 'b' => random_int(2, 9)];
+$_SESSION['recupera_captcha'] = $captcha['a'] + $captcha['b'];
 
 $error = '';
+$ok = false;
 $valores = ['email' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -44,10 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = filter_var($valores['email'], FILTER_VALIDATE_EMAIL);
         $password = trim($_POST['password'] ?? '');
         $confirmar = trim($_POST['confirmar'] ?? '');
-        $respuesta = (int)($_POST['respuesta'] ?? -1);
+        $respuestaCap = trim($_POST['captcha'] ?? '');
+        $esperado = (int)($_SESSION['recupera_captcha'] ?? -1);
+        unset($_SESSION['recupera_captcha']);
 
         if (!$email) {
             $error = 'Ingresa un correo válido.';
+        } elseif ((string)$respuestaCap === '' || (int)$respuestaCap !== $esperado) {
+            $error = 'La respuesta del captcha no es correcta. Intenta de nuevo.';
         } elseif (strlen($password) < 6) {
             $error = 'La nueva contraseña debe tener mínimo 6 caracteres.';
         } elseif ($password !== $confirmar) {
@@ -58,18 +50,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $usuario = $stmt->fetch();
             if (!$usuario) {
                 $error = 'No encontramos una cuenta con ese correo.';
-            } elseif (!isset($PREGUNTAS[$qIdx]) || $respuesta !== (int)$PREGUNTAS[$qIdx]['r']) {
-                $error = 'La respuesta a la pregunta no es correcta.';
             } else {
                 $pdo->prepare('UPDATE usuarios SET password = ? WHERE id = ?')
                     ->execute([password_hash($password, PASSWORD_BCRYPT), (int)$usuario['id']]);
-                unset($_SESSION['recupera_q']);
+                unset($_SESSION['recupera_captcha']);
+                $ok = true;
                 flash('Contraseña restablecida. Ahora inicia sesión con tu nueva contraseña.');
-                header('Location: iniciar-sesion.php');
-                exit;
             }
         }
     }
+}
+
+/* Si falló el captcha (o cualquier error), regeneramos uno nuevo */
+if (!isset($_SESSION['recupera_captcha'])) {
+    $captcha = ['a' => random_int(3, 12), 'b' => random_int(2, 9)];
+    $_SESSION['recupera_captcha'] = $captcha['a'] + $captcha['b'];
 }
 ?>
 <!DOCTYPE html>
@@ -88,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .mini-nav { display:flex; background:#eef3fb; border-radius:12px; padding:4px; }
         .mini-nav a { flex:1; text-align:center; padding:.5rem .25rem; border-radius:9px; color:#4a5a78; text-decoration:none; font-weight:600; font-size:.85rem; }
         .mini-nav a.act { background:#fff; color:#0a3d8f; box-shadow:0 1px 3px rgba(7,28,61,.15); }
+        .captcha-caja { background:#eef3fb; border:2px dashed #0a3d8f; border-radius:12px; padding:.85rem 1rem; display:flex; align-items:center; gap:.75rem; }
     </style>
 </head>
 <body class="d-flex align-items-center justify-content-center p-3">
@@ -100,49 +96,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="card card-gral shadow-lg w-100">
             <div class="card-body p-4 p-md-5">
                 <div class="mini-nav mb-4">
-                    <a href="iniciar-sesion.php" class="act"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>
-                    <a href="registro.php"><i class="bi bi-person-plus me-1"></i>Crear cuenta</a>
+                    <a href="iniciar-sesion.php"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>
+                    <a href="registro.php" class="act"><i class="bi bi-person-plus me-1"></i>Crear cuenta</a>
                 </div>
 
-                <h4 class="fw-bold mb-1">Restablece tu contraseña</h4>
-                <p class="text-muted small mb-4">Escribe tu nueva contraseña y responde la pregunta para verificar que eres tú.</p>
-
-                <?php if ($error): ?>
-                    <div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle me-1"></i><?= e($error) ?></div>
-                <?php endif; ?>
-
-                <form method="POST" action="recuperar.php" novalidate>
-                    <?= campo_csrf() ?>
-                    <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Correo electrónico</label>
-                        <input type="email" name="email" class="form-control" required autofocus autocomplete="email" value="<?= e($valores['email']) ?>" placeholder="tucorreo@ejemplo.com">
+                <?php if ($ok): ?>
+                    <div class="text-center py-3">
+                        <i class="bi bi-check-circle-fill text-success fs-1 d-block mb-3"></i>
+                        <h4 class="fw-bold mb-2">¡Contraseña restablecida!</h4>
+                        <p class="text-muted small mb-4">Tu contraseña fue actualizada correctamente. Ya puedes iniciar sesión.</p>
+                        <a href="iniciar-sesion.php" class="btn btn-fv w-100 py-2"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>
                     </div>
-                    <div class="row">
-                        <div class="col-6 mb-3">
-                            <label class="form-label small fw-semibold">Nueva contraseña</label>
-                            <input type="password" name="password" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Mín. 6 caracteres">
+                <?php else: ?>
+                    <h4 class="fw-bold mb-1">Restablece tu contraseña</h4>
+                    <p class="text-muted small mb-4">Escribe tu nueva contraseña y resuelve el captcha para verificar que eres tú.</p>
+
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle me-1"></i><?= e($error) ?></div>
+                    <?php else: ?>
+                        <?php mostrar_flash(); ?>
+                    <?php endif; ?>
+
+                    <form method="POST" action="recuperar.php" novalidate autocomplete="off">
+                        <?= campo_csrf() ?>
+                        <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Correo electrónico</label>
+                            <input type="email" name="email" class="form-control" required autofocus autocomplete="email" value="<?= e($valores['email']) ?>" placeholder="tucorreo@ejemplo.com">
                         </div>
-                        <div class="col-6 mb-3">
-                            <label class="form-label small fw-semibold">Confirmar</label>
-                            <input type="password" name="confirmar" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Repite la contraseña">
-                        </div>
-                    </div>
-                    <div class="alert alert-light border small p-3 mb-4">
-                        <p class="mb-2 fw-semibold"><i class="bi bi-question-circle me-1 text-primary"></i><?= e($PREGUNTAS[$qIdx]['p']) ?></p>
-                        <?php foreach ($PREGUNTAS[$qIdx]['o'] as $i => $opcion): ?>
-                            <div class="form-check mb-1">
-                                <input class="form-check-input" type="radio" name="respuesta" id="respuesta<?= $i ?>" value="<?= $i ?>" required>
-                                <label class="form-check-label" for="respuesta<?= $i ?>"><?= e((string)$opcion) ?></label>
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label small fw-semibold">Nueva contraseña</label>
+                                <input type="password" name="password" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Mín. 6 caracteres">
                             </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <button type="submit" class="btn btn-fv w-100 py-2"><i class="bi bi-key me-1"></i>Restablecer contraseña</button>
-                </form>
+                            <div class="col-6 mb-3">
+                                <label class="form-label small fw-semibold">Confirmar</label>
+                                <input type="password" name="confirmar" class="form-control" required minlength="6" autocomplete="new-password" placeholder="Repite la contraseña">
+                            </div>
+                        </div>
+                        <div class="captcha-caja mb-3">
+                            <i class="bi bi-shield-check text-primary fs-3"></i>
+                            <div class="flex-grow-1">
+                                <label class="form-label small fw-semibold mb-1">Captcha: ¿Cuánto es <?= (int)$captcha['a'] ?> + <?= (int)$captcha['b'] ?>?</label>
+                                <input type="number" name="captcha" class="form-control form-control-sm" required placeholder="Escribe solo el número" min="0" max="999">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-fv w-100 py-2"><i class="bi bi-key me-1"></i>Restablecer contraseña</button>
+                    </form>
 
-                <p class="text-center small text-muted mt-4 mb-0">
-                    ¿Recordaste tu clave? <a href="iniciar-sesion.php" class="fw-semibold" style="color:#0a3d8f;">Inicia sesión</a>
-                </p>
+                    <p class="text-center small text-muted mt-4 mb-0">
+                        ¿Recordaste tu clave? <a href="iniciar-sesion.php" class="fw-semibold" style="color:#0a3d8f;">Inicia sesión</a>
+                    </p>
+                <?php endif; ?>
             </div>
         </div>
 

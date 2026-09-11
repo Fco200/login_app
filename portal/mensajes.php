@@ -32,6 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo->prepare('INSERT INTO mensajes_portal (usuario_id, remitente, mensaje) VALUES (?, ?, ?)')
         ->execute([(int)$usuario['id'], 'cliente', mb_substr($texto, 0, 2000)]);
 
+    notificar_admins('mensaje', 'Nuevo mensaje de cliente', ($usuario['nombre'] ?? 'Cliente') . ' envió un mensaje al chat.', url_sitio('admin/mensajes_portal.php?usuario_id=' . (int)$usuario['id']));
+
     responder([
         'ok'      => true,
         'titulo'  => '¡Mensaje enviado!',

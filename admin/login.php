@@ -69,7 +69,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <button type="submit" class="btn btn-fv w-100 py-2"><i class="bi bi-shield-lock me-1"></i>Entrar al panel</button>
             </form>
-            <div class="text-center mt-3 small">
+            <div class="text-center mt-3">
+                <a href="recuperar.php" class="small fw-semibold" style="color:#0a3d8f;"><i class="bi bi-key me-1"></i>¿Olvidaste tu contraseña?</a>
+            </div>
+            <div class="text-center mt-2 small">
                 <a href="../index.php" class="text-decoration-none text-muted"><i class="bi bi-arrow-left me-1"></i>Volver al sitio</a>
             </div>
         </div>

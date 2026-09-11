@@ -14,11 +14,16 @@ $enlaces = [
     'cartas.php'       => ['Cartas de presentación', 'bi-envelope-paper'],
     'testimonios.php'  => ['Testimonios', 'bi-chat-quote'],
     'solicitudes.php'  => ['Solicitudes', 'bi-inbox'],
+    'pagos.php'        => ['Pagos', 'bi-credit-card'],
+    'facturacion.php'  => ['Facturación', 'bi-receipt-cutoff'],
+    'procesos.php'     => ['Procesos', 'bi-bezier2'],
     'mensajes.php'     => ['Mensajes', 'bi-envelope'],
     'mensajes_portal.php' => ['Chat del portal', 'bi-chat-dots'],
     'soporte.php'      => ['Soporte / Reportes', 'bi-headset'],
     'suscripciones.php'=> ['Suscripciones', 'bi-envelope-heart'],
     'usuarios.php'     => ['Usuarios', 'bi-people'],
+    'clientes.php'     => ['Clientes', 'bi-people-fill'],
+    'entregables.php'  => ['Entregables', 'bi-folder2-open'],
     'config.php'       => ['Configuración', 'bi-gear'],
 ];
 ?>
@@ -52,6 +57,10 @@ $enlaces = [
                     <i class="bi <?= $info[1] ?>"></i><?= $info[0] ?>
                     <?php if ($arch === 'solicitudes.php'): $n = (int)contar_registros('solicitudes', "estado = 'nueva'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
+                    <?php elseif ($arch === 'pagos.php'): $n = (int)contar_registros('pagos', "estado = 'pendiente'"); ?>
+                        <?php if ($n > 0): ?><span class="badge text-bg-warning ms-1"><?= $n ?></span><?php endif; ?>
+                    <?php elseif ($arch === 'procesos.php'): $n = (int)contar_registros('proyectos_inicio', "estado = 'en_desarrollo'"); ?>
+                        <?php if ($n > 0): ?><span class="badge text-bg-primary ms-1"><?= $n ?></span><?php endif; ?>
                     <?php elseif ($arch === 'mensajes.php'): $n = (int)contar_registros('mensajes_contacto', 'leido = 0'); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-warning ms-1"><?= $n ?></span><?php endif; ?>
                     <?php elseif ($arch === 'mensajes_portal.php'): $n = (int)$pdo->query("SELECT COUNT(*) FROM mensajes_portal WHERE remitente = 'cliente' AND leido = 0")->fetchColumn(); ?>
@@ -60,9 +69,35 @@ $enlaces = [
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
                     <?php endif; ?>
                 </a>
+                <?php if ($arch === 'pagos.php'): ?>
+                    <div class="nav-sub ms-2 ps-1 d-flex flex-column">
+                        <a class="nav-link <?= $archivo === 'pagos.php' && !isset($_GET['tab']) ? 'active' : '' ?>" href="pagos.php" style="font-size:.84rem;">
+                            <i class="bi bi-receipt"></i>Registro de pagos
+                        </a>
+                        <a class="nav-link <?= ($_GET['tab'] ?? '') === 'metodos' ? 'active' : '' ?>" href="pagos.php?tab=metodos" style="font-size:.84rem;">
+                            <i class="bi bi-wallet2"></i>Métodos de pago
+                        </a>
+                        <a class="nav-link <?= ($_GET['tab'] ?? '') === 'productos' ? 'active' : '' ?>" href="pagos.php?tab=productos" style="font-size:.84rem;">
+                            <i class="bi bi-box-seam"></i>Productos
+                        </a>
+                    </div>
+                <?php endif; ?>
             <?php endforeach; ?>
         </nav>
         <nav class="nav flex-column mt-4 border-top pt-3" style="border-color:rgba(255,255,255,.1)!important;">
+            <a class="nav-link <?= $archivo === 'notificaciones.php' ? 'active' : '' ?>" href="notificaciones.php">
+                <i class="bi bi-bell"></i>Notificaciones
+                <?php
+                $miId = (int)($_SESSION['admin_id'] ?? 0);
+                $nNotif = 0;
+                if ($miId > 0) {
+                    try {
+                        $nNotif = (int)$pdo->query('SELECT COUNT(*) FROM notificaciones WHERE usuario_id = ' . $miId . ' AND leida = 0')->fetchColumn();
+                    } catch (Throwable $e) { $nNotif = 0; }
+                }
+                ?>
+                <?php if ($nNotif > 0): ?><span class="badge text-bg-danger ms-1"><?= $nNotif ?></span><?php endif; ?>
+            </a>
             <a class="nav-link <?= $archivo === 'perfil.php' ? 'active' : '' ?>" href="perfil.php"><i class="bi bi-person-circle"></i>Mi perfil</a>
             <a class="nav-link" href="cerrar.php"><i class="bi bi-box-arrow-right"></i>Cerrar sesión</a>
         </nav>
@@ -88,8 +123,15 @@ $enlaces = [
         <div class="offcanvas-body p-0">
             <?php foreach ($enlaces as $arch => $info): ?>
                 <a class="nav-link text-light d-block px-4 py-2 <?= $archivo === $arch ? 'text-primary fw-bold' : '' ?>" href="<?= $arch ?>"><i class="bi <?= $info[1] ?> me-2"></i><?= $info[0] ?></a>
+                <?php if ($arch === 'pagos.php'): ?>
+                    <a class="nav-link text-light d-block px-5 py-1 <?= ($_GET['tab'] ?? '') === 'metodos' ? 'text-primary fw-bold' : '' ?>" href="pagos.php?tab=metodos"><i class="bi bi-wallet2 me-2"></i>Métodos de pago</a>
+                    <a class="nav-link text-light d-block px-5 py-1 <?= ($_GET['tab'] ?? '') === 'productos' ? 'text-primary fw-bold' : '' ?>" href="pagos.php?tab=productos"><i class="bi bi-box-seam me-2"></i>Productos</a>
+                <?php endif; ?>
             <?php endforeach; ?>
             <hr class="opacity-25">
+            <a class="nav-link text-light d-block px-4 py-2 <?= $archivo === 'notificaciones.php' ? 'text-primary fw-bold' : '' ?>" href="notificaciones.php"><i class="bi bi-bell me-2"></i>Notificaciones
+                <?php if (($nNotif ?? 0) > 0): ?><span class="badge text-bg-danger ms-1"><?= (int)$nNotif ?></span><?php endif; ?>
+            </a>
             <a class="nav-link text-light d-block px-4 py-2 <?= $archivo === 'perfil.php' ? 'text-primary fw-bold' : '' ?>" href="perfil.php"><i class="bi bi-person-circle me-2"></i>Mi perfil</a>
             <a class="nav-link text-light d-block px-4 py-2" href="cerrar.php"><i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión</a>
         </div>
@@ -104,6 +146,12 @@ $enlaces = [
             </div>
             <div class="d-flex align-items-center gap-3">
                 <a href="../../index.php" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-globe2 me-1"></i>Ver sitio</a>
+                <a href="notificaciones.php" class="btn btn-sm btn-outline-secondary position-relative" title="Notificaciones">
+                    <i class="bi bi-bell"></i>
+                    <?php if (($nNotif ?? 0) > 0): ?>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.6rem;"><?= (int)$nNotif ?></span>
+                    <?php endif; ?>
+                </a>
                 <span class="badge bg-light text-dark border d-none d-md-inline" id="chipSesion" title="Tiempo restante de sesión (se renueva con tu actividad)"><i class="bi bi-hourglass-split me-1"></i><span id="sesionRestante">--:--</span></span>
                 <span class="small d-none d-md-inline"><i class="bi bi-person-circle me-1"></i><?= e($_SESSION['admin_nombre'] ?? $_SESSION['nombre'] ?? 'Admin') ?><span class="badge bg-primary text-uppercase ms-1"><?= e($_SESSION['admin_rol'] ?? 'admin') ?></span></span>
             </div>

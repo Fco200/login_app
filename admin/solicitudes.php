@@ -14,35 +14,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         if ($accion === 'estado') {
             $estado = in_array($_POST['estado'] ?? '', ['nueva', 'en_proceso', 'completada', 'rechazada'], true)
                 ? $_POST['estado'] : 'nueva';
-            $estadoAnterior = $pdo->prepare('SELECT estado, usuario_id, tipo_servicio, nombre FROM solicitudes WHERE id = ?');
+            $nota = trim((string)($_POST['nota'] ?? ''));
+            $estadoAnterior = $pdo->prepare('SELECT estado, usuario_id, tipo_servicio, nombre, email FROM solicitudes WHERE id = ?');
             $estadoAnterior->execute([$id]);
             $datosSol = $estadoAnterior->fetch();
 
             $pdo->prepare('UPDATE solicitudes SET estado = ? WHERE id = ?')->execute([$estado, $id]);
 
-            registrar_historial($id, $estado, 'Estado actualizado en el panel.');
+            registrar_historial($id, $estado, $nota !== '' ? $nota : 'Estado actualizado por el administrador.');
 
             if ($datosSol && !empty($datosSol['usuario_id'])) {
                 $notas = [
                     'en_proceso'  => 'Estamos trabajando en tu solicitud. Pronto tendrás novedades.',
                     'completada'  => '¡Tu solicitud fue completada! Revisa los detalles en tu portal.',
                     'rechazada'   => 'Tu solicitud no pudo ser procesada. Chatea con nosotros para más detalles.',
+                    'nueva'       => 'Recibimos tu solicitud y estamos por revisarla.',
                 ];
                 notificar(
                     (int)$datosSol['usuario_id'],
                     'estado',
                     "Tu solicitud de {$datosSol['tipo_servicio']} ahora está: " . ucfirst(str_replace('_', ' ', $estado)),
-                    $notas[$estado] ?? '',
+                    $nota !== '' ? $nota : ($notas[$estado] ?? ''),
                     url_sitio('portal/solicitudes.php')
                 );
+
+                /* Aviso por correo al cliente */
+                if (!empty($datosSol['email'])) {
+                    $textoEstado = [
+                        'nueva'       => 'Recibimos tu solicitud y estamos por revisarla.',
+                        'en_proceso'  => 'Estamos trabajando en tu solicitud. Pronto tendrás novedades.',
+                        'completada'  => '¡Tu solicitud fue completada! Revisa los detalles en tu portal.',
+                        'rechazada'   => 'Tu solicitud no pudo ser procesada. Conversa con nosotros para más detalles.',
+                    ];
+                    enviar_correo(
+                        $datosSol['email'],
+                        'Actualización de tu solicitud — ' . SITE_NOMBRE,
+                        correo_plantilla(
+                            'Tu solicitud ahora está: ' . ucfirst(str_replace('_', ' ', $estado)),
+                            '<p>Hola <b>' . e($datosSol['nombre'] ?: '') . '</b>,</p>'
+                            . '<p><b>Servicio:</b> ' . e($datosSol['tipo_servicio'] ?: '—') . '</p>'
+                            . '<p>' . e($nota !== '' ? $nota : ($textoEstado[$estado] ?? '')) . '</p>'
+                            . '<p><a href="' . e(url_sitio('portal/solicitudes.php')) . '" style="background:#0a3d8f;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;">Ver mi solicitud</a></p>'
+                        )
+                    );
+                }
             }
-            flash('Estado actualizado y cliente notificado.');
+
+            responder([
+                'ok'           => true,
+                'mensaje'      => 'Estado actualizado y cliente notificado.',
+                'tipo'         => 'success',
+                'accion'       => 'estado_solicitud',
+                'solicitud_id' => $id,
+                'estado'       => $estado,
+                'nota'         => $nota,
+            ]);
         } else {
             $pdo->prepare('DELETE FROM solicitudes WHERE id = ?')->execute([$id]);
             flash('Solicitud eliminada.', 'warning');
+            header('Location: solicitudes.php');
+            exit;
         }
-        header('Location: solicitudes.php');
-        exit;
     }
 }
 
@@ -108,7 +140,7 @@ $nIndividuales = contar_registros("solicitudes", "tipo_solicitud = 'individual'"
                         <td class="small"><?= e($s['presupuesto'] ?: '—') ?></td>
                         <td class="small text-muted" style="max-width:260px;"><?= e(mb_strimwidth($s['mensaje'] ?? '', 0, 90, '…')) ?></td>
                         <td>
-                            <span class="badge badge-estado text-uppercase text-bg-<?= match($s['estado']) { 'nueva' => 'danger', 'en_proceso' => 'warning', 'completada' => 'success', 'rechazada' => 'secondary', default => 'light' } ?>">
+                            <span class="badge badge-estado text-uppercase text-bg-<?= match($s['estado']) { 'nueva' => 'danger', 'en_proceso' => 'warning', 'completada' => 'success', 'rechazada' => 'secondary', default => 'light' } ?>" data-estado-sol="<?= (int)$s['id'] ?>">
                                 <?= e(str_replace('_', ' ', $s['estado'])) ?>
                             </span>
                         </td>
@@ -164,7 +196,7 @@ foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_
                         <?php if (!$histSol): ?>
                             <p class="small text-muted mb-0">Sin avances registrados todavía.</p>
                         <?php else: ?>
-                            <ul class="timeline portal-timeline small">
+                            <ul class="timeline portal-timeline small" id="historial-<?= (int)$s['id'] ?>">
                                 <?php foreach ($histSol as $hito): ?>
                                     <li class="d-flex gap-2">
                                         <span class="badge <?= $estadoBadge[$hito['estado']] ?? 'bg-light text-dark' ?> text-uppercase"><?= e(str_replace('_', ' ', $hito['estado'])) ?></span>
@@ -177,18 +209,21 @@ foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_
                             </ul>
                         <?php endif; ?>
                     </div>
+                    <form method="POST" action="solicitudes.php" class="js-ajax border rounded p-2 mt-2" id="formEstado-<?= (int)$s['id'] ?>">
+                        <?= campo_csrf() ?>
+                        <input type="hidden" name="accion" value="estado">
+                        <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <select name="estado" id="selEstado-<?= (int)$s['id'] ?>" class="form-select form-select-sm" style="max-width:200px;">
+                                <?php foreach ($estados as $est): ?>
+                                    <option value="<?= $est ?>" <?= $s['estado'] === $est ? 'selected' : '' ?>><?= e(ucfirst(str_replace('_', ' ', $est))) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-fv"><i class="bi bi-check2 me-1"></i>Actualizar estado</button>
+                        </div>
+                        <input type="text" name="nota" maxlength="300" class="form-control form-control-sm mt-2" placeholder="Nota visible para el cliente (opcional)…" aria-label="Nota para el cliente">
+                    </form>
                 </div>
-                <form method="POST" action="solicitudes.php" class="d-flex flex-wrap gap-2 align-items-center">
-                    <?= campo_csrf() ?>
-                    <input type="hidden" name="accion" value="estado">
-                    <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
-                    <select name="estado" class="form-select form-select-sm" style="max-width:200px;">
-                        <?php foreach ($estados as $est): ?>
-                            <option value="<?= $est ?>" <?= $s['estado'] === $est ? 'selected' : '' ?>><?= e(ucfirst(str_replace('_', ' ', $est))) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <button type="submit" class="btn btn-sm btn-fv">Actualizar estado</button>
-                </form>
             </div>
             <div class="modal-footer">
                 <form method="POST" onsubmit="return confirm('¿Eliminar esta solicitud?')">
@@ -203,5 +238,51 @@ foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_
     </div>
 </div>
 <?php endforeach; ?>
+
+<script>
+// Actualización en vivo del estado de la solicitud (sin recargar la página)
+document.addEventListener('fv:ajaxok', function (e) {
+    var d = (e && e.detail) || {};
+    if (d.accion !== 'estado_solicitud' || !d.solicitud_id) return;
+
+    var id = d.solicitud_id;
+    var clases = { nueva: 'text-bg-danger', en_proceso: 'text-bg-warning', completada: 'text-bg-success', rechazada: 'text-bg-secondary' };
+    var texto = String(d.estado).replace(/_/g, ' ');
+    var mayus = texto.charAt(0).toUpperCase() + texto.slice(1);
+
+    var sel = document.getElementById('selEstado-' + id);
+    if (sel) sel.value = d.estado;
+
+    var badge = document.querySelector('[data-estado-sol="' + id + '"]');
+    if (badge) {
+        badge.className = 'badge badge-estado text-uppercase ' + (clases[d.estado] || 'text-bg-light');
+        badge.textContent = texto;
+    }
+
+    var historial = document.getElementById('historial-' + id);
+    if (historial && d.nota) {
+        var fecha = new Date();
+        var ahora = ('0' + fecha.getDate()).slice(-2) + '/' + ('0' + (fecha.getMonth() + 1)).slice(-2) + '/' + fecha.getFullYear()
+                    + ' ' + ('0' + fecha.getHours()).slice(-2) + ':' + ('0' + fecha.getMinutes()).slice(-2);
+        var li = document.createElement('li');
+        li.className = 'd-flex gap-2';
+        var nota = document.createElement('span');
+        nota.className = 'badge text-uppercase ' + (clases[d.estado] || 'bg-light text-dark');
+        nota.textContent = texto;
+        var div = document.createElement('div');
+        var txt = document.createElement('span');
+        txt.className = 'd-block text-muted';
+        txt.textContent = d.nota;
+        var sm = document.createElement('small');
+        sm.className = 'text-muted';
+        sm.textContent = ahora;
+        div.appendChild(txt);
+        div.appendChild(sm);
+        li.appendChild(nota);
+        li.appendChild(div);
+        historial.appendChild(li);
+    }
+});
+</script>
 
 <?php require_once __DIR__ . '/includes/pie.php'; ?>

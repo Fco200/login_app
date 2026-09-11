@@ -17,3 +17,27 @@
 .tabla-admin td { vertical-align: middle; font-size: .9rem; }
 .miniatura { width: 70px; height: 48px; object-fit: cover; border-radius: 8px; background: #e8f0fe; }
 .badge-estado { font-size: .72rem; padding: .35em .7em; border-radius: 50rem; }
+
+/* ---------- Submenú "Pagos" en la barra lateral ---------- */
+.admin-sidebar .nav-sub {
+    border-left: 2px solid rgba(255,255,255,.16);
+    margin-left: 1.25rem !important;
+}
+.admin-sidebar .nav-sub .nav-link {
+    padding: .32rem .7rem;
+    opacity: .9;
+}
+.admin-sidebar .nav-sub .nav-link.active {
+    background: transparent;
+    color: var(--azul-suave, #cfe1ff);
+    font-weight: 600;
+}
+
+/* ---------- Tarjetas KPI de Facturación ---------- */
+.factura-kpi { border-radius: 14px; position: relative; padding-top: 1.8rem !important; }
+.factura-kpi-icono {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem; margin: 0 auto .6rem;
+    box-shadow: 0 6px 14px rgba(11,94,215,.14);
+}

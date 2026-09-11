@@ -17,6 +17,7 @@ RewriteRule ^acceso/?$         iniciar-sesion.php [L,QSA]
 RewriteRule ^crear-cuenta/?$   registro.php       [L,QSA]
 RewriteRule ^recuperar-password/?$ recuperar.php  [L,QSA]
 RewriteRule ^solicitud-empresa/?$ solicitud-empresa.php [L,QSA]
+RewriteRule ^productos/?$      productos.php      [L,QSA]
 
 # Cualquier ruta que apunte a un archivo o carpeta real se sirve tal cual
 RewriteCond %{REQUEST_FILENAME} -f [OR]

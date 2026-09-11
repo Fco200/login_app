@@ -91,6 +91,36 @@ window.FV = window.FV || {};
         location.href = url;
     };
 
+    /* ---------- Actualización en vivo (sin recargar) ----------
+       Después de una respuesta AJAX exitosa se dispara el evento fv:ajaxok
+       con los datos; cada página puede escucharlo para refrescar su DOM
+       (carrito, badges de estado, historial, etc.). */
+    FV.actualizarCarrito = function (n) {
+        n = Math.max(0, n | 0);
+        var badges = document.querySelectorAll('[data-carrito-badge]');
+        for (var i = 0; i < badges.length; i++) {
+            badges[i].textContent = n;
+            badges[i].style.display = n > 0 ? '' : 'none';
+        }
+    };
+
+    FV.actualizarResumen = function (d) {
+        function set(sel, val) {
+            var el = document.querySelector(sel);
+            if (el && val != null) el.textContent = String(val);
+        }
+        if (typeof d.cart_count === 'number') FV.actualizarCarrito(d.cart_count);
+        if (d.cart_subtotal != null) { set('[data-cart-subtotal]', d.cart_subtotal); set('[data-cart-total]', d.cart_total || d.cart_subtotal); }
+        if (d.cart_items != null) set('[data-cart-items]', d.cart_items);
+        if (d.cart_units != null) set('[data-cart-units]', d.cart_units);
+    };
+
+    document.addEventListener('fv:ajaxok', function (e) {
+        var d = (e && e.detail) || {};
+        if (typeof d.cart_count === 'number') FV.actualizarCarrito(d.cart_count);
+        if (d.cart_subtotal != null || d.cart_items != null) FV.actualizarResumen(d);
+    });
+
     /* ---------- Overlay de carga ---------- */
     let cargandoEl = null;
 
@@ -160,12 +190,28 @@ window.FV = window.FV || {};
             }
 
             form.reset();
+            document.dispatchEvent(new CustomEvent('fv:ajaxok', { detail: datos }));
             FV.overlay(datos);
         }).catch(function () {
             FV.cargando(false);
             if (boton) { boton.disabled = disabledOriginal; boton.innerHTML = etiquetaOriginal; }
             form.submit();
         });
+    });
+
+    /* ---------- Modales bajo <body> ----------
+       Si un modal (position:fixed) queda dentro de un contenedor con
+       transform/filter/perspective, se ancla a ese contenedor y la pantalla
+       se muestra distorsionada al abrirlo. Bootstrap recomienda colocar los
+       modales directamente bajo <body>; aquí se reubican al cargar. */
+    document.addEventListener('DOMContentLoaded', function () {
+        var body = document.body;
+        var modales = document.querySelectorAll('.modal');
+        for (var i = 0; i < modales.length; i++) {
+            if (modales[i].parentNode && modales[i].parentNode !== body) {
+                body.appendChild(modales[i]);
+            }
+        }
     });
 
     /* ---------- Mensaje flash → overlay centrado al cargar la página ---------- */

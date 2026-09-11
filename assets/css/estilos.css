@@ -61,6 +61,16 @@ img { max-width: 100%; }
 .btn-light-fv { background: #fff; color: var(--azul); border: none; font-weight: 600; border-radius: 50rem; padding: .55rem 1.4rem; }
 .btn-light-fv:hover { background: var(--azul-suave); color: var(--azul-oscuro); }
 
+/* ---------- Pestañas de marca ---------- */
+.nav-tabs-fv { border-bottom: 2px solid var(--borde, #e3eaf5); gap: .25rem; }
+.nav-tabs-fv .nav-link {
+    border: 0; border-bottom: 3px solid transparent; color: var(--gris, #5b6b82);
+    font-weight: 600; border-radius: 0; padding: .6rem 1rem; margin-bottom: -2px;
+    transition: color .2s ease, border-color .2s ease;
+}
+.nav-tabs-fv .nav-link:hover { color: var(--azul, #0b5ed7); }
+.nav-tabs-fv .nav-link.active { color: var(--azul, #0b5ed7); border-bottom-color: var(--azul, #0b5ed7); background: transparent; }
+
 /* ---------- Hero ---------- */
 .hero {
     background: linear-gradient(135deg, #081d3f 0%, #0a3d8f 55%, #0b5ed7 100%);

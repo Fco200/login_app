@@ -67,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     registrar_historial($solicitudId, 'nueva', 'Solicitud empresarial registrada.');
     notificar((int)$usuario['id'], 'exito', '¡Solicitud empresarial recibida!',
         "Recibimos la solicitud de $empresa por $servicioNombre. Te responderemos en máximo 48 h hábiles.", url_sitio('portal/solicitudes.php'));
+    notificar_admins('estado', 'Nueva solicitud empresarial', "$nombre de $empresa solicitó una cotización de $servicioNombre.", url_sitio('admin/solicitudes.php'));
 
     responder([
         'ok'      => true,

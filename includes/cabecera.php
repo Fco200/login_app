@@ -51,6 +51,7 @@ $horario = dato_sitio('horario', SITE_HORARIO);
             <ul class="navbar-nav ms-auto align-items-lg-center">
                 <li class="nav-item"><a class="nav-link <?= $seccion === 'inicio' ? 'active' : '' ?>" href="index.php">Inicio</a></li>
                 <li class="nav-item"><a class="nav-link <?= $seccion === 'servicios' ? 'active' : '' ?>" href="servicios.php">Servicios</a></li>
+                <li class="nav-item"><a class="nav-link <?= $seccion === 'productos' ? 'active' : '' ?>" href="productos.php">Productos</a></li>
                 <li class="nav-item"><a class="nav-link <?= $seccion === 'proyectos' ? 'active' : '' ?>" href="proyectos.php">Proyectos</a></li>
                 <li class="nav-item"><a class="nav-link <?= $seccion === 'publicaciones' ? 'active' : '' ?>" href="publicaciones.php">Publicaciones</a></li>
                 <li class="nav-item"><a class="nav-link <?= $seccion === 'cartas' ? 'active' : '' ?>" href="cartas.php">Cartas</a></li>
@@ -59,25 +60,36 @@ $horario = dato_sitio('horario', SITE_HORARIO);
                     <a href="solicitud.php" class="btn btn-fv btn-sm">Cotizar <i class="bi bi-arrow-right ms-1"></i></a>
                 </li>
                 <?php if (esta_logueado()): ?>
-                    <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
-                        <div class="dropdown">
-                            <button class="btn btn-outline-fv btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="bi bi-person-circle me-1"></i><span class="text-truncate" style="max-width:140px;display:inline-block;vertical-align:bottom;"><?= e($_SESSION['nombre'] ?? 'Mi cuenta') ?></span>
-                            </button>
-                            <ul class="dropdown-menu dropdown-menu-end shadow">
-                                <li><a class="dropdown-item" href="clientes"><i class="bi bi-person-circle me-1"></i>Mi portal</a></li>
-                                <li><a class="dropdown-item" href="clientes/mis-solicitudes"><i class="bi bi-inbox me-1"></i>Mis solicitudes</a></li>
-                                <li><a class="dropdown-item" href="clientes/chat"><i class="bi bi-chat-dots me-1"></i>Mensajes con el negocio</a></li>
-                                <li><a class="dropdown-item" href="solicitud.php"><i class="bi bi-send me-1"></i>Nueva solicitud</a></li>
-                                <?php if (esta_admin()): ?>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="admin/index.php"><i class="bi bi-grid me-1"></i>Panel de administración</a></li>
-                                <?php endif; ?>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="cerrar-sesion.php"><i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión</a></li>
-                            </ul>
-                        </div>
-                    </li>
+<li class="nav-item ms-lg-2 mt-2 mt-lg-0">
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-fv btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="bi bi-person-circle me-1"></i><span class="text-truncate" style="max-width:140px;display:inline-block;vertical-align:bottom;"><?= e($_SESSION['nombre'] ?? 'Mi cuenta') ?></span>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                                        <li><a class="dropdown-item" href="clientes"><i class="bi bi-person-circle me-1"></i>Mi portal</a></li>
+                                        <li><a class="dropdown-item" href="clientes/mis-solicitudes"><i class="bi bi-inbox me-1"></i>Mis solicitudes</a></li>
+                                        <li><a class="dropdown-item" href="clientes/procesos"><i class="bi bi-bezier2 me-1"></i>Mis procesos</a></li>
+                                        <li><a class="dropdown-item" href="clientes/pagos"><i class="bi bi-credit-card me-1"></i>Mis pagos</a></li>
+                                        <li><a class="dropdown-item" href="clientes/chat"><i class="bi bi-chat-dots me-1"></i>Mensajes con el negocio</a></li>
+                                        <li><a class="dropdown-item" href="solicitud.php"><i class="bi bi-send me-1"></i>Nueva solicitud</a></li>
+                                        <?php if (esta_admin()): ?>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item" href="admin/index.php"><i class="bi bi-grid me-1"></i>Panel de administración</a></li>
+                                        <?php endif; ?>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-danger" href="cerrar-sesion.php"><i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión</a></li>
+                                    </ul>
+                                </div>
+                            </li>
+                            <?php $cartPublico = esta_logueado() ? contar_carrito((int)$_SESSION['usuario_id']) : 0; ?>
+                            <li class="nav-item ms-lg-2 mt-2 mt-lg-0 position-relative">
+                                <a href="clientes/carrito" class="btn btn-outline-fv btn-sm" title="Mi carrito">
+                                    <i class="bi bi-cart3"></i>
+                                    <?php if (esta_logueado() && $cartPublico > 0): ?>
+                                        <span class="badge text-bg-primary rounded-pill" style="position:absolute;top:-6px;right:-6px;font-size:.6rem;"><?= $cartPublico ?></span>
+                                    <?php endif; ?>
+                                </a>
+                            </li>
                 <?php else: ?>
                     <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
                         <a href="acceso" class="btn btn-outline-fv btn-sm"><i class="bi bi-box-arrow-in-right me-1"></i>Iniciar sesión</a>

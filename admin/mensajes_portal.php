@@ -5,6 +5,20 @@ $seccionAdmin = 'mensajes_portal.php';
 
 require_once __DIR__ . '/includes/cabecera.php';
 
+/* Mensajes predeterminados para responder rápido a los clientes */
+$MENSAJES_RAPIDOS = [
+    ['text' => '¡Hola! Te saluda el equipo de FV Digital. ¿En qué podemos ayudarte?', 'icono' => 'bi-emoji-smile', 'label' => 'Saludo inicial'],
+    ['text' => 'Gracias por tu mensaje. Estamos revisando tu solicitud y te responderemos a la brevedad posible.', 'icono' => 'bi-hourglass-split', 'label' => 'Solicitud en revisión'],
+    ['text' => 'Tu solicitud ya fue registrada correctamente. Puedes darle seguimiento desde la sección "Mis solicitudes" en tu portal.', 'icono' => 'bi-check2-circle', 'label' => 'Solicitud registrada'],
+    ['text' => 'Recibimos tu comprobante de pago. Lo estamos verificando; en breve te confirmamos la aprobación.', 'icono' => 'bi-credit-card', 'label' => 'Comprobante recibido'],
+    ['text' => 'Tu pago fue aprobado. ¡Gracias por tu confianza! El proyecto continúa su proceso normalmente.', 'icono' => 'bi-cash-coin', 'label' => 'Pago aprobado'],
+    ['text' => 'Nos falta información para avanzar con tu proyecto. Por favor comparte más detalles (alcance, fechas, requerimientos).', 'icono' => 'bi-question-circle', 'label' => 'Falta información'],
+    ['text' => 'Tu proyecto ya está en desarrollo. Te avisaremos de cada avance y de cualquier duda que surja.', 'icono' => 'bi-code-slash', 'label' => 'Proyecto en desarrollo'],
+    ['text' => 'Tu proyecto fue completado. Puedes revisar los entregables y, si tienes dudas, con gusto te apoyamos.', 'icono' => 'bi-check-circle-fill', 'label' => 'Proyecto completado'],
+    ['text' => 'Para iniciar el proyecto se requiere un anticipo mínimo de $2,500 MXN, que se descuenta del total de tu cotización. ¿Deseas proceder con el pago?', 'icono' => 'bi-cash-stack', 'label' => 'Recordatorio de anticipo'],
+    ['text' => 'Estamos preparando tu cotización completa. En cuanto esté lista te la enviamos por este medio.', 'icono' => 'bi-file-earmark-text', 'label' => 'Cotización en proceso'],
+];
+
 /* ---------- Responder ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $texto = trim($_POST['mensaje'] ?? '');
@@ -101,12 +115,28 @@ if ($selUsuario > 0) {
                         <?php endforeach; ?>
                     </div>
 
+                    <div class="d-flex flex-wrap gap-1 mb-2">
+                        <span class="small text-muted align-self-center me-1"><i class="bi bi-lightning-charge-fill text-warning me-1"></i>Respuestas rápidas:</span>
+                        <?php foreach ($MENSAJES_RAPIDOS as $mr): ?>
+                            <button type="button" class="btn btn-sm btn-outline-primary btn-mensaje-rapido" title="<?= e($mr['label']) ?>" data-mensaje="<?= e($mr['text']) ?>">
+                                <i class="bi <?= e($mr['icono']) ?> me-1"></i><?= e($mr['label']) ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
                     <form method="POST" action="mensajes_portal.php" class="d-flex gap-2">
                         <?= campo_csrf() ?>
                         <input type="hidden" name="usuario_id" value="<?= $selUsuario ?>">
-                        <textarea name="mensaje" class="form-control" rows="2" maxlength="2000" required placeholder="Escribe tu respuesta…"></textarea>
+                        <textarea name="mensaje" id="txtRespuesta" class="form-control" rows="2" maxlength="2000" required placeholder="Escribe tu respuesta…"></textarea>
                         <button class="btn btn-fv flex-shrink-0"><i class="bi bi-send me-1"></i>Responder</button>
                     </form>
+                    <script>
+                    document.querySelectorAll('.btn-mensaje-rapido').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            var ta = document.getElementById('txtRespuesta');
+                            if (ta) { ta.value = this.dataset.mensaje; ta.focus(); }
+                        });
+                    });
+                    </script>
                 <?php else: ?>
                     <div class="text-center text-muted py-5">
                         <i class="bi bi-chat-square-text fs-1 d-block mb-2"></i>

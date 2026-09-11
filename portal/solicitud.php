@@ -63,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $solicitudId = (int)$pdo->lastInsertId();
     registrar_historial($solicitudId, 'nueva', 'Solicitud registrada desde el portal.');
     notificar((int)$usuario['id'], 'exito', '¡Solicitud recibida!', "Registramos tu solicitud de $servicioNombre y empezamos a revisarla.", url_sitio('portal/solicitudes.php'));
+    notificar_admins('estado', 'Nueva solicitud de cotización', $nombre . ' solicitó una cotización de ' . $servicioNombre . '.', url_sitio('admin/solicitudes.php'));
 
     responder([
         'ok'      => true,

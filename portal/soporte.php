@@ -24,6 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo->prepare('INSERT INTO soporte (usuario_id, nombre, email, categoria, pagina, descripcion) VALUES (?, ?, ?, ?, ?, ?)')
         ->execute([(int)$usuario['id'], $usuario['nombre'], $usuario['email'], $categoria, $pagina !== '' ? $pagina : null, mb_substr($descripcion, 0, 3000)]);
 
+    $idReporte = (int)$pdo->lastInsertId();
+    notificar_admins('soporte', 'Nuevo reporte de soporte', $usuario['nombre'] . ' envió un reporte #' . $idReporte . ' (' . $categoria . ').', url_sitio('admin/soporte.php'));
+
     responder([
         'ok'      => true,
         'titulo'  => '¡Reporte enviado!',
