@@ -1,6 +1,6 @@
 <?php //inicio de archivo php para conexion a la base de datos
 $host = '127.0.0.1'; //host de la base de datos, en este caso localhost
-$port = '3307'; //puerto de la base de datos, en este caso 3307
+$port = '3306'; //puerto de la base de datos, en este caso 3306
 $db   = 'sistema_login'; //nombre de la base de datos, en este caso sistema_login
 $user = 'root'; //usuario de la base de datos, en este caso root
 $pass = ''; // Por defecto en XAMPP viene vacía
