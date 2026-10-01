@@ -8,16 +8,16 @@ if ($mysqli->connect_error) {
     die("Error de conexión a MySQL: " . $mysqli->connect_error);
 }
 
-// 2. Conexión a MongoDB Atlas (usando tu URI correcta)
+// 2. Conexión a MongoDB Atlas (tu URI con la contraseña limpia)
 $uri = "mongodb+srv://franciscoaguayo2005_db_user:fvdigitalhmo123@fvdigitalhmo.fvzluc5.mongodb.net/";
 $client = new MongoDB\Client($uri);
 $db = $client->FVDIGITALHMO;
 
-// Lista de tablas que quieres migrar
-$tablas = ['usuarios', 'cartas', 'datos_sitio', 'servicios', 'vehiculos', 'publicaciones', 'metodos_pago'];
+// Lista de tablas principales de tu sistema para migrar
+$tablas = ['usuarios', 'cartas', 'datos_sitio', 'servicios', 'vehiculos', 'publicaciones', 'metodos_pago', 'solicitudes'];
 
 foreach ($tablas as $tabla) {
-    echo "Migrando tabla: $tabla...<br>";
+    echo "Migrando tabla: <b>$tabla</b>...<br>";
     
     // Limpiar colección si ya existe para evitar duplicados
     $db->$tabla->drop();
@@ -27,7 +27,7 @@ foreach ($tablas as $tabla) {
     if ($resultado && $resultado->num_rows > 0) {
         $documentos = [];
         while ($fila = $resultado->fetch_assoc()) {
-            // Convertir tipos de datos si es necesario (ej. enteros y flotantes)
+            // Convertir valores numéricos para que MongoDB los guarde como números y no como texto
             foreach ($fila as $key => $value) {
                 if (is_numeric($value)) {
                     $fila[$key] = strpos($value, '.') !== false ? (float)$value : (int)$value;
@@ -36,7 +36,7 @@ foreach ($tablas as $tabla) {
             $documentos[] = $fila;
         }
         
-        // Insertar en bloque en MongoDB
+        // Insertar documentos en bloque en la colección de MongoDB
         if (!empty($documentos)) {
             $db->$tabla->insertMany($documentos);
             echo "¡Insertados " . count($documentos) . " registros en la colección '$tabla'!<br><br>";
@@ -46,24 +46,5 @@ foreach ($tablas as $tabla) {
     }
 }
 
-echo "<strong>¡Migración completa con éxito!</strong>";
+echo "<strong>¡Migración completa con éxito! Ya puedes revisar tus colecciones en MongoDB Compass.</strong>";
 ?>
-```[cite: 4]
-
----
-
-### Paso 2: Ejecutar el script
-1. Asegúrate de tener encendido tu servidor local de **XAMPP** (Apache y MySQL)[cite: 4].
-2. Asegúrate de haber instalado la librería de MongoDB en tu proyecto ejecutando en tu terminal[cite: 4]:
-   ```bash
-   composer require mongodb/mongodb
-   ```[cite: 4]
-3. Abre tu navegador web y entra a la ruta de tu script local (por ejemplo: `http://localhost/tu_proyecto/migrar.php`)[cite: 4].
-4. El script leerá tus tablas de MySQL, creará las colecciones correspondientes en MongoDB Atlas y te mostrará un mensaje de éxito por cada tabla migrada[cite: 4].
-
----
-
-### Paso 3: Verificar en MongoDB Compass
-Vuelve a abrir tu aplicación de **MongoDB Compass**, dale al botón de refrescar y verás cómo aparecen automáticamente todas tus colecciones (`usuarios`, `servicios`, `vehiculos`, etc.) con sus respectivos documentos limpios y listos para usarse[cite: 4]. 
-
-¿Tienes alguna duda con este script o quieres que ajustemos alguna tabla en particular?
