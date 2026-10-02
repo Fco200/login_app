@@ -9,7 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
-        $id = (int)($_POST['id'] ?? 0);
+        $id = trim((string)($_POST['id'] ?? ''));
+        $id = $id !== '' ? $id : null;
         $tituloP = trim($_POST['titulo']);
         $resumen = trim($_POST['resumen']);
         $contenido = trim($_POST['contenido']);
@@ -26,18 +27,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         }
         if ($r['ok']) $imagen = $r['archivo'];
 
-        if ($id > 0) {
-            $sql = "UPDATE publicaciones SET titulo=?, resumen=?, contenido=?, categoria=?, autor=?, destaque=?, activo=? WHERE id=?";
-            $pdo->prepare($sql)->execute([$tituloP, $resumen, $contenido, $categoria, $autor, $destacado, $activo, $id]);
+        if ($id !== null && oid($id) !== null) {
+            $previa = crud_por_id('publicaciones', $id);
+            crud_actualizar('publicaciones', $id, [
+                'titulo'      => $tituloP,
+                'resumen'     => $resumen,
+                'contenido'   => $contenido,
+                'categoria'   => $categoria,
+                'autor'       => $autor,
+                'destaque'    => $destacado,
+                'activo'      => $activo,
+            ]);
             if ($imagen !== null) {
-                $prev = $pdo->prepare('SELECT imagen FROM publicaciones WHERE id=?'); $prev->execute([$id]); $prevR = $prev->fetch();
-                eliminar_archivo($prevR['imagen'] ?? null);
-                $pdo->prepare('UPDATE publicaciones SET imagen=? WHERE id=?')->execute([$imagen, $id]);
+                eliminar_archivo($previa['imagen'] ?? null);
+                crud_actualizar('publicaciones', $id, ['imagen' => $imagen]);
             }
             flash('Publicación actualizada.');
         } else {
-            $sql = "INSERT INTO publicaciones (titulo, slug, resumen, contenido, categoria, imagen, autor, destaque, activo) VALUES (?,?,?,?,?,?,?,?,?)";
-            $pdo->prepare($sql)->execute([$tituloP, $slugBase, $resumen, $contenido, $categoria, $imagen, $autor, $destacado, $activo]);
+            crud_crear('publicaciones', [
+                'titulo'      => $tituloP,
+                'slug'        => slug_unico('publicaciones', $slugBase),
+                'resumen'     => $resumen,
+                'contenido'   => $contenido,
+                'categoria'   => $categoria,
+                'imagen'      => $imagen,
+                'autor'       => $autor,
+                'destaque'    => $destacado,
+                'activo'      => $activo,
+            ]);
             flash('Publicación creada.');
         }
         header('Location: publicaciones.php');
@@ -45,22 +62,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        $stmt = $pdo->prepare('SELECT imagen FROM publicaciones WHERE id=?'); $stmt->execute([(int)$_POST['id']]);
-        $filas = $stmt->fetch();
-        if ($filas) eliminar_archivo($filas['imagen']);
-        $pdo->prepare('DELETE FROM publicaciones WHERE id = ?')->execute([(int)$_POST['id']]);
+        $filas = crud_por_id('publicaciones', (string)$_POST['id']);
+        if ($filas) eliminar_archivo($filas['imagen'] ?? null);
+        crud_eliminar('publicaciones', (string)$_POST['id']);
         flash('Publicación eliminada.', 'warning');
         header('Location: publicaciones.php');
         exit;
     }
 }
 
-$publicaciones = $pdo->query('SELECT * FROM publicaciones ORDER BY destaque DESC, creado_en DESC')->fetchAll();
+$publicaciones = crud_listar('publicaciones', [], ['sort' => ['destaque' => -1, 'creado_en' => -1]]);
 $editar = null;
 if (isset($_GET['editar'])) {
-    $stmt = $pdo->prepare('SELECT * FROM publicaciones WHERE id = ?');
-    $stmt->execute([(int)$_GET['editar']]);
-    $editar = $stmt->fetch();
+    $editar = crud_por_id('publicaciones', (string)$_GET['editar']);
 }
 ?>
 
@@ -92,7 +106,7 @@ if (isset($_GET['editar'])) {
                             <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar esta publicación?')">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= (int)$pub['id'] ?>">
+                                <input type="hidden" name="id" value="<?= e((string)$pub['id']) ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>

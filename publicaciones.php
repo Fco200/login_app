@@ -17,7 +17,7 @@ require_once 'includes/cabecera.php';
     <div class="container">
         <div class="row g-4">
             <?php
-            $pubs = $pdo->query("SELECT * FROM publicaciones WHERE activo = 1 ORDER BY creado_en DESC")->fetchAll();
+            $pubs = pub_activos();
             if ($pubs):
                 foreach ($pubs as $pub):
             ?>

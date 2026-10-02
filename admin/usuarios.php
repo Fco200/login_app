@@ -5,17 +5,16 @@ $seccionAdmin = 'usuarios.php';
 
 require_once __DIR__ . '/includes/cabecera.php';
 
-$miId = (int)($_SESSION['admin_id'] ?? $_SESSION['usuario_id'] ?? 0);
+$miId = (string)($_SESSION['admin_id'] ?? $_SESSION['usuario_id'] ?? '');
 
 /* ---------- Acciones ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
-    $id = (int)($_POST['id'] ?? 0);
+    $id = trim((string)($_POST['id'] ?? ''));
 
-    if ($accion === 'rol') {
-        $stmt = $pdo->prepare('SELECT rol FROM usuarios WHERE id = ?');
-        $stmt->execute([$id]);
-        if ($stmt->fetchColumn() === 'cliente') {
+    if ($accion === 'rol' && oid($id) !== null) {
+        $objetivo = usr_por_id($id);
+        if ($objetivo && (string)($objetivo['rol'] ?? '') === 'cliente') {
             flash('No se puede cambiar el rol de un cliente registrado en la web.', 'danger');
             header('Location: usuarios.php');
             exit;
@@ -28,36 +27,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $password = trim($_POST['password']);
         $rol = ($_POST['rol'] ?? 'vendedor') === 'admin' ? 'admin' : 'vendedor';
 
-        if ($nombre === '' || $email === '' || strlen($password) < 6) {
-            flash('El nombre y correo son obligatorios y la contraseña debe tener mínimo 6 caracteres.', 'danger');
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            flash('Correo electrónico no válido.', 'danger');
-        } else {
-            $existe = $pdo->prepare('SELECT id FROM usuarios WHERE email = ?'); $existe->execute([$email]);
-            if ($existe->fetch()) {
-                flash('Ese correo ya está registrado.', 'danger');
-            } else {
-                $pdo->prepare('INSERT INTO usuarios (nombre, email, password, rol) VALUES (?,?,?,?)')
-                    ->execute([$nombre, $email, password_hash($password, PASSWORD_BCRYPT), $rol]);
-                flash('Usuario creado correctamente.');
-            }
-        }
+        $res = usr_crear([
+            'nombre'   => $nombre,
+            'email'    => $email,
+            'password' => $password,
+            'rol'      => $rol,
+            'activo'   => 1,
+        ]);
+        flash(!empty($res['ok']) ? 'Usuario creado correctamente.' : ($res['mensaje'] ?? 'No se pudo crear el usuario.'),
+            !empty($res['ok']) ? 'success' : 'danger');
         header('Location: usuarios.php');
         exit;
     }
 
-    if ($accion === 'rol' && $id > 0 && $id !== $miId) {
+    if ($accion === 'rol' && oid($id) !== null && $id !== $miId) {
         $nuevo = ($_POST['rol'] ?? 'vendedor') === 'admin' ? 'admin' : 'vendedor';
-        $pdo->prepare('UPDATE usuarios SET rol = ? WHERE id = ?')->execute([$nuevo, $id]);
+        usr_actualizar($id, ['rol' => $nuevo]);
         flash('Rol actualizado.');
         header('Location: usuarios.php');
         exit;
     }
 
-    if ($accion === 'password' && $id > 0) {
+    if ($accion === 'password' && oid($id) !== null) {
         $password = trim($_POST['password']);
         if (strlen($password) >= 6) {
-            $pdo->prepare('UPDATE usuarios SET password = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_BCRYPT), $id]);
+            usr_actualizar($id, ['password' => $password]);
             flash('Contraseña actualizada.');
         } else {
             flash('La contraseña debe tener mínimo 6 caracteres.', 'danger');
@@ -66,15 +60,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         exit;
     }
 
-    if ($accion === 'eliminar' && $id > 0 && $id !== $miId) {
-        $pdo->prepare('DELETE FROM usuarios WHERE id = ?')->execute([$id]);
+    if ($accion === 'eliminar' && oid($id) !== null && $id !== $miId) {
+        usr_eliminar($id);
         flash('Usuario eliminado.', 'warning');
         header('Location: usuarios.php');
         exit;
     }
 }
 
-$usuarios = $pdo->query('SELECT * FROM usuarios ORDER BY id ASC')->fetchAll();
+$usuarios = usr_listar();
+$conteoRoles = usr_conteo_por_rol();
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -93,17 +88,17 @@ $usuarios = $pdo->query('SELECT * FROM usuarios ORDER BY id ASC')->fetchAll();
                     <tr>
                         <td class="ps-3">
                             <b><?= e($u['nombre']) ?></b>
-                            <?php if ((int)$u['id'] === $miId): ?><span class="badge text-bg-primary ms-1">Tú</span><?php endif; ?>
+                            <?php if ((string)$u['id'] === $miId): ?><span class="badge text-bg-primary ms-1">Tú</span><?php endif; ?>
                             <br><small class="text-muted"><?= e($u['email']) ?></small>
                         </td>
                         <td>
                             <?php if ($u['rol'] === 'cliente'): ?>
                                 <span class="badge badge-estado text-bg-success text-uppercase">Cliente</span>
-                            <?php elseif ((int)$u['id'] !== $miId): ?>
+                            <?php elseif ((string)$u['id'] !== $miId): ?>
                                 <form method="POST" class="d-inline-flex align-items-center gap-1">
                                     <?= campo_csrf() ?>
                                     <input type="hidden" name="accion" value="rol">
-                                    <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
                                     <select name="rol" class="form-select form-select-sm" style="width:118px;" onchange="this.form.submit()">
                                         <option value="admin" <?= $u['rol'] === 'admin' ? 'selected' : '' ?>>Admin</option>
                                         <option value="vendedor" <?= $u['rol'] === 'vendedor' ? 'selected' : '' ?>>Vendedor</option>
@@ -113,14 +108,14 @@ $usuarios = $pdo->query('SELECT * FROM usuarios ORDER BY id ASC')->fetchAll();
                                 <span class="badge badge-estado text-bg-primary text-uppercase"><?= e($u['rol']) ?></span>
                             <?php endif; ?>
                         </td>
-                        <td class="small text-muted"><?= e(date('d/m/Y', strtotime($u['creado_en']))) ?></td>
+                        <td class="small text-muted"><?= e(fecha_php($u['creado_en'] ?? '', 'd/m/Y')) ?></td>
                         <td class="text-end pe-3">
-                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalPass<?= (int)$u['id'] ?>" title="Cambiar contraseña"><i class="bi bi-key"></i></button>
-                            <?php if ((int)$u['id'] !== $miId): ?>
+                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalPass<?= e($u['id']) ?>" title="Cambiar contraseña"><i class="bi bi-key"></i></button>
+                            <?php if ((string)$u['id'] !== $miId): ?>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este usuario? No podrá entrar al panel.')">
                                     <?= campo_csrf() ?>
                                     <input type="hidden" name="accion" value="eliminar">
-                                    <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
                                     <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                                 </form>
                             <?php endif; ?>
@@ -175,13 +170,13 @@ $usuarios = $pdo->query('SELECT * FROM usuarios ORDER BY id ASC')->fetchAll();
 
 <!-- Modales contraseña -->
 <?php foreach ($usuarios as $u): ?>
-    <div class="modal fade" id="modalPass<?= (int)$u['id'] ?>" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="modalPass<?= e($u['id']) ?>" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="POST" action="usuarios.php">
                     <?= campo_csrf() ?>
                     <input type="hidden" name="accion" value="password">
-                    <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                    <input type="hidden" name="id" value="<?= e($u['id']) ?>">
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold">Cambiar contraseña</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>

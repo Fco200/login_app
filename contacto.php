@@ -24,16 +24,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['e
         }
         flash('Todos los campos son obligatorios.', 'danger');
     } else {
-        $pdo->prepare('INSERT INTO mensajes_contacto (nombre, email, asunto, mensaje) VALUES (?, ?, ?, ?)')
-            ->execute([$nombre, $email2, $asunto, $mensaje]);
-        if (es_ajax()) {
+        $r = contacto_registrar([
+            'nombre'  => $nombre,
+            'email'   => $email2,
+            'asunto'  => $asunto,
+            'mensaje' => $mensaje,
+        ]);
+        if (!$r['ok'] && es_ajax()) {
+            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+        }
+        if ($r['ok'] && es_ajax()) {
             responder([
                 'ok'      => true,
                 'titulo'  => '¡Mensaje enviado!',
                 'mensaje' => 'Gracias por escribirnos. Te responderemos lo antes posible.',
             ]);
         }
-        $enviado = true;
+        $enviado = $r['ok'];
     }
 }
 

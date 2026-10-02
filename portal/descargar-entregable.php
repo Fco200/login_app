@@ -5,22 +5,28 @@ require_once __DIR__ . '/../funciones.php';
 
 iniciar_sesion_segura();
 
-$id = (int)($_GET['id'] ?? 0);
-$stmt = $GLOBALS['pdo']->prepare('SELECT en.*, pi.usuario_id, pi.estado AS proyecto_estado
-                                  FROM entregables en
-                                  JOIN proyectos_inicio pi ON pi.id = en.proyecto_id
-                                  WHERE en.id = ?');
-$stmt->execute([$id]);
-$ent = $stmt->fetch();
+$id = trim((string)($_GET['id'] ?? ''));
+$ent = ($id !== '' && oid($id) !== null) ? ent_por_id($id) : null;
 
 $esAdmin = esta_admin();
-if (!$ent || (!$esAdmin && (int)$ent['usuario_id'] !== (int)($_SESSION['usuario_id'] ?? 0))) {
+$dueno = false;
+if ($ent !== null && !empty($ent['proyecto_id'])) {
+    $proy = proy_por_id($ent['proyecto_id']);
+    $dueno = $proy !== null
+        && esta_logueado()
+        && (string)($proy['usuario_id'] ?? '') === (string)$_SESSION['usuario_id'];
+    $estadoProyecto = (string)($proy['estado'] ?? '');
+} else {
+    $estadoProyecto = '';
+}
+
+if (!$ent || (!$esAdmin && !$dueno)) {
     http_response_code(404);
     echo 'Entregable no encontrado.';
     exit;
 }
 
-if (!$esAdmin && !in_array($ent['proyecto_estado'], ['en_desarrollo', 'completado'], true)) {
+if (!$esAdmin && !in_array($estadoProyecto, ['en_desarrollo', 'completado'], true)) {
     redirigir('procesos.php');
 }
 

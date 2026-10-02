@@ -10,7 +10,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
-        $id    = (int)($_POST['id'] ?? 0);
+        $id    = trim((string)($_POST['id'] ?? ''));
+        $id    = $id !== '' ? $id : null;
         $tituloS = trim($_POST['titulo']);
         $corta = trim($_POST['descripcion_corta']);
         $desc  = trim($_POST['descripcion']);
@@ -22,13 +23,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
         $slugBase = slugify($tituloS) ?: ('servicio-' . date('YmdHis'));
 
-        if ($id > 0) {
-            $sql = "UPDATE servicios SET titulo=?, descripcion_corta=?, descripcion=?, icono=?, categoria=?, precio_desde=?, destaque=?, activo=? WHERE id=?";
-            $pdo->prepare($sql)->execute([$tituloS, $corta, $desc, $icono, $categoria, $precio, $destaque, $activo, $id]);
+if ($id !== null && oid($id) !== null) {
+            crud_actualizar('servicios', $id, [
+                'titulo'           => $tituloS,
+                'descripcion_corta'=> $corta,
+                'descripcion'      => $desc,
+                'icono'            => $icono,
+                'categoria'        => $categoria,
+                'precio_desde'     => $precio,
+                'destaque'         => $destaque,
+                'activo'           => $activo,
+            ]);
             flash('Servicio actualizado correctamente.');
         } else {
-            $sql = "INSERT INTO servicios (titulo, slug, descripcion_corta, descripcion, icono, categoria, precio_desde, destaque, activo) VALUES (?,?,?,?,?,?,?,?,?)";
-            $pdo->prepare($sql)->execute([$tituloS, $slugBase, $corta, $desc, $icono, $categoria, $precio, $destaque, $activo]);
+            crud_crear('servicios', [
+                'titulo'           => $tituloS,
+                'slug'             => slug_unico('servicios', $slugBase),
+                'descripcion_corta'=> $corta,
+                'descripcion'      => $desc,
+                'icono'            => $icono,
+                'categoria'        => $categoria,
+                'precio_desde'     => $precio,
+                'destaque'         => $destaque,
+                'activo'           => $activo,
+            ]);
             flash('Servicio creado correctamente.');
         }
         header('Location: servicios.php');
@@ -36,19 +54,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        $pdo->prepare('DELETE FROM servicios WHERE id = ?')->execute([(int)$_POST['id']]);
+        crud_eliminar('servicios', (string)$_POST['id']);
         flash('Servicio eliminado.', 'warning');
         header('Location: servicios.php');
         exit;
     }
 }
 
-$servicios = $pdo->query('SELECT * FROM servicios ORDER BY destaque DESC, id ASC')->fetchAll();
+$servicios = crud_listar('servicios', [], ['sort' => ['destaque' => -1, '_id' => 1]]);
 $editar = null;
 if (isset($_GET['editar'])) {
-    $stmt = $pdo->prepare('SELECT * FROM servicios WHERE id = ?');
-    $stmt->execute([(int)$_GET['editar']]);
-    $editar = $stmt->fetch();
+    $editar = crud_por_id('servicios', (string)$_GET['editar']);
 }
 ?>
 
@@ -79,7 +95,7 @@ if (isset($_GET['editar'])) {
                             <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este servicio?')">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                                <input type="hidden" name="id" value="<?= e((string)$s['id']) ?>">
                                 <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>

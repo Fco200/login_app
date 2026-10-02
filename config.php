@@ -2,11 +2,23 @@
 /* ============================================================
    FV DIGITAL - Soluciones Digitales y Desarrollo
    Configuración general del sitio (valores por defecto).
-   Los valores editables desde el panel se guardan en la tabla
-   `datos_sitio` y sobreescriben a estos al renderizar.
+   Los valores editables desde el panel se guardan en la colección
+   `datos_sitio` de MongoDB y sobreescriben a estos al renderizar.
    ============================================================ */
 
 date_default_timezone_set('America/Hermosillo');
+
+/* ---------- MongoDB Atlas ----------
+   Base de datos: FVDIGITALHMO.
+   Se puede sobreescribir con las variables de entorno MONGODB_URI y
+   MONGODB_DB, o con un archivo local ignorado por git
+   (config/mongodb.local.php) para no exponer credenciales en el repo. */
+if (!defined('MONGODB_URI')) {
+    define('MONGODB_URI', 'mongodb+srv://franciscoaguayo2005_db_user:fvdigitalhmo123@fvdigitalhmo.fvzluc5.mongodb.net/?appName=FVDIGITALHMO');
+}
+if (!defined('MONGODB_DB')) {
+    define('MONGODB_DB', 'FVDIGITALHMO');
+}
 
 define('SITE_NOMBRE', 'FV DIGITAL');
 define('SITE_ESLOGAN', 'Soluciones Digitales y Desarrollo');

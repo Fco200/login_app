@@ -45,18 +45,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($password !== $confirmar) {
             $error = 'Las contraseñas no coinciden.';
         } else {
-            $stmt = $pdo->prepare('SELECT id FROM usuarios WHERE email = ? LIMIT 1');
-            $stmt->execute([$email]);
-            $usuario = $stmt->fetch();
-            if (!$usuario) {
-                $error = 'No encontramos una cuenta con ese correo.';
-            } else {
-                $pdo->prepare('UPDATE usuarios SET password = ? WHERE id = ?')
-                    ->execute([password_hash($password, PASSWORD_BCRYPT), (int)$usuario['id']]);
-                unset($_SESSION['recupera_captcha']);
-                $ok = true;
-                flash('Contraseña restablecida. Ahora inicia sesión con tu nueva contraseña.');
-            }
+$usuario = $email ? usr_por_email((string)$email) : null;
+              if (!$usuario) {
+                  $error = 'No encontramos una cuenta con ese correo.';
+              } else {
+                  usr_actualizar($usuario['id'], ['password' => $password]);
+                  unset($_SESSION['recupera_captcha']);
+                  $ok = true;
+                  flash('Contraseña restablecida. Ahora inicia sesión con tu nueva contraseña.');
+              }
         }
     }
 }

@@ -19,8 +19,8 @@ if (!es_ajax()) {
     exit(json_encode(['ok' => false, 'mensaje' => 'Solicitud inválida.'], JSON_UNESCAPED_UNICODE));
 }
 
-$proyectoId = (int)($_GET['proyecto_id'] ?? ($_GET['id'] ?? 0));
-if ($proyectoId <= 0) {
+$proyectoId = trim((string)($_GET['proyecto_id'] ?? ($_GET['id'] ?? '')));
+if (oid($proyectoId) === null) {
     http_response_code(400);
     exit(json_encode(['ok' => false, 'mensaje' => 'Proyecto inválido.'], JSON_UNESCAPED_UNICODE));
 }
@@ -28,39 +28,31 @@ if ($proyectoId <= 0) {
 $esAdmin = esta_admin();
 
 /* Datos del proyecto con cliente y solicitud */
-$st = $GLOBALS['pdo']->prepare('SELECT pi.*, s.tipo_servicio, s.presupuesto, s.creado_en AS solicitud_creada,
-                                       u.nombre AS cliente_nombre, u.email AS cliente_email
-                                FROM proyectos_inicio pi
-                                LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                                LEFT JOIN usuarios u ON pi.usuario_id = u.id
-                                WHERE pi.id = ?');
-$st->execute([$proyectoId]);
-$p = $st->fetch();
-if (!$p) {
+$p = proy_por_id($proyectoId);
+if ($p === null) {
     http_response_code(404);
     exit(json_encode(['ok' => false, 'mensaje' => 'Proyecto no encontrado.'], JSON_UNESCAPED_UNICODE));
 }
+$p = proy_con_cliente($p);
 if (!$esAdmin) {
     $usuario = sesion_actual();
-    if (!$usuario || (int)$p['usuario_id'] !== (int)$usuario['id']) {
+    if (!$usuario || (string)($p['usuario_id'] ?? '') !== (string)($usuario['id'] ?? '')) {
         http_response_code(403);
         exit(json_encode(['ok' => false, 'mensaje' => 'No autorizado.'], JSON_UNESCAPED_UNICODE));
     }
 }
-if ($p['estado'] !== 'completado') {
+if ((string)($p['estado'] ?? '') !== 'completado') {
     http_response_code(409);
     exit(json_encode(['ok' => false, 'mensaje' => 'La carta de agradecimiento está disponible cuando el proyecto se entrega (Completado).'], JSON_UNESCAPED_UNICODE));
 }
 
 /* Entregables registrados */
 $entregables = [];
-$stE = $GLOBALS['pdo']->prepare('SELECT id, titulo, notas, creado_en FROM entregables WHERE proyecto_id = ? ORDER BY creado_en ASC');
-$stE->execute([$proyectoId]);
-foreach ($stE as $en) {
+foreach (ent_por_proyectos([$proyectoId]) as $en) {
     $entregables[] = [
-        'titulo' => (string)$en['titulo'],
+        'titulo' => (string)($en['titulo'] ?? ''),
         'notas'  => (string)($en['notas'] ?? ''),
-        'fecha'  => date('d/m/Y', strtotime($en['creado_en'])),
+        'fecha'  => fecha_php($en['creado_en'] ?? '', 'd/m/Y'),
     ];
 }
 
@@ -84,17 +76,17 @@ $textoCierre =
 echo json_encode([
     'ok' => true,
     'proyecto' => [
-        'id'                  => (int)$p['id'],
-        'servicio'            => (string)($p['tipo_servicio'] ?? 'Proyecto #' . (int)$p['id']),
+        'id'                  => (string)$p['id'],
+        'servicio'            => (string)($p['tipo_servicio'] ?? 'Proyecto #' . (string)$p['id']),
         'descripcion'         => (string)($p['descripcion_proyecto'] ?? ''),
         'entregables_txt'     => (string)($p['entregables'] ?? ''),
-        'estado'              => (string)$p['estado'],
-        'iniciado'            => date('d/m/Y', strtotime($p['creado_en'])),
-        'finalizado'          => date('d/m/Y'),
-        'folio'               => 'FV-' . str_pad((string)$p['id'], 4, '0', STR_PAD_LEFT),
+        'estado'              => (string)($p['estado'] ?? ''),
+        'iniciado'            => fecha_php($p['creado_en'] ?? '', 'd/m/Y'),
+        'finalizado'          => fecha_php($p['actualizado_en'] ?? null, 'd/m/Y'),
+        'folio'               => 'FV-' . str_pad(counter_partes($p['id']), 4, '0', STR_PAD_LEFT),
         'total'               => $total,
-        'pagado'              => max(0, (float)$p['pagado_total']),
-        'saldo'               => max(0, (float)$p['saldo_restante']),
+        'pagado'              => max(0, (float)($p['pagado_total'] ?? 0)),
+        'saldo'               => max(0, (float)($p['saldo_restante'] ?? 0)),
         'pagos_subtotal'      => $subtotal,
     ],
     'cliente' => [

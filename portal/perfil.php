@@ -5,7 +5,8 @@ requiere_sesion();
 $seccionPortal = 'perfil';
 $titulo = 'Mi perfil';
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
+$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
+$usuarioId = (string)$usuario['id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verificar_csrf() || !empty($_POST['empresa'])) {
@@ -15,26 +16,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'datos') {
-        $nombre = trim($_POST['nombre'] ?? '');
-        $telefono = trim($_POST['telefono'] ?? '');
-        $passActual = trim($_POST['password_actual'] ?? '');
-        $passNueva = trim($_POST['password_nueva'] ?? '');
+        $nombre = trim((string)($_POST['nombre'] ?? ''));
+        $telefono = trim((string)($_POST['telefono'] ?? ''));
+        $passActual = trim((string)($_POST['password_actual'] ?? ''));
+        $passNueva = trim((string)($_POST['password_nueva'] ?? ''));
 
         if ($nombre === '' || mb_strlen($telefono) < 10) {
             responder(['ok' => false, 'mensaje' => 'El nombre es obligatorio y el teléfono debe tener al menos 10 dígitos.', 'tipo' => 'danger']);
         }
+        $cambios = ['nombre' => $nombre, 'telefono' => $telefono];
         if ($passActual !== '' || $passNueva !== '') {
-            if (!password_verify($passActual, $usuario['password'])) {
+            if (!password_verify($passActual, (string)($usuario['password'] ?? ''))) {
                 responder(['ok' => false, 'mensaje' => 'La contraseña actual no es correcta.', 'tipo' => 'danger']);
             }
             if (strlen($passNueva) < 6) {
                 responder(['ok' => false, 'mensaje' => 'La nueva contraseña debe tener mínimo 6 caracteres.', 'tipo' => 'danger']);
             }
-            $pdo->prepare('UPDATE usuarios SET nombre = ?, telefono = ?, password = ? WHERE id = ?')
-                ->execute([$nombre, $telefono, password_hash($passNueva, PASSWORD_BCRYPT), (int)$usuario['id']]);
-        } else {
-            $pdo->prepare('UPDATE usuarios SET nombre = ?, telefono = ? WHERE id = ?')
-                ->execute([$nombre, $telefono, (int)$usuario['id']]);
+            $cambios['password'] = $passNueva;
+        }
+        $r = usr_actualizar($usuarioId, $cambios);
+        if (!$r['ok']) {
+            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
         }
         $_SESSION['nombre'] = $nombre;
         responder([
@@ -46,16 +48,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($accion === 'boletin') {
-        $stmt = $pdo->prepare('SELECT activo FROM suscripciones WHERE email = ? LIMIT 1');
-        $stmt->execute([$usuario['email']]);
-        $existente = $stmt->fetch();
+        $email = (string)$usuario['email'];
+        $existente = suscripcion_activa($email);
 
         if (($_POST['boletin_accion'] ?? '') === 'suscribir') {
-            $pdo->prepare('INSERT INTO suscripciones (email) VALUES (?) ON DUPLICATE KEY UPDATE activo = 1')->execute([$usuario['email']]);
+            suscripcion_activar($email);
             $msj = 'Te suscribiste al boletín de novedades.';
         } else {
             if ($existente) {
-                $pdo->prepare('UPDATE suscripciones SET activo = 0 WHERE email = ?')->execute([$usuario['email']]);
+                suscripcion_alternar($email, false);
                 $msj = 'Te diste de baja del boletín.';
             } else {
                 $msj = 'No tenías una suscripción activa.';
@@ -67,9 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 require_once __DIR__ . '/includes/cabecera.php';
 
-$stmtB = $pdo->prepare('SELECT activo FROM suscripciones WHERE email = ? LIMIT 1');
-$stmtB->execute([$usuario['email']]);
-$suscrito = (bool)(($stmtB->fetch()['activo'] ?? false));
+$suscrito = suscripcion_activa((string)$usuario['email']);
 ?>
 
 <div class="mb-4">

@@ -5,20 +5,19 @@ require_once __DIR__ . '/includes/cabecera.php';
 
 date_default_timezone_set('America/Hermosillo');
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => '', 'rfc' => '', 'direccion' => ''];
+$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => '', 'rfc' => '', 'direccion' => ''];
+$usuarioId = (string)$usuario['id'];
 
 /* ---------- Solicitar factura ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     if (($_POST['accion'] ?? '') === 'solicitar_factura') {
-        $proyectoId = (int)($_POST['proyecto_id'] ?? 0);
+        $proyectoId = trim((string)($_POST['proyecto_id'] ?? ''));
         $rfc = strtoupper(trim((string)($_POST['rfc'] ?? '')));
         $direccion = trim((string)($_POST['direccion'] ?? ''));
         $concepto = trim((string)($_POST['concepto'] ?? ''));
 
-        $st = $pdo->prepare('SELECT id, estado, total_proyecto, saldo_restante FROM proyectos_inicio WHERE id = ? AND usuario_id = ?');
-        $st->execute([$proyectoId, (int)$usuario['id']]);
-        $proy = $st->fetch();
-        if (!$proy) {
+        $proy = col_q1('proyectos_inicio', ['_id' => oid($proyectoId), 'usuario_id' => oid($usuarioId)]);
+        if ($proy === null) {
             responder(['ok' => false, 'mensaje' => 'El proyecto no existe o no te pertenece.', 'tipo' => 'danger']);
         }
         $liquidable = in_array($proy['estado'], ['liquidado', 'completado'], true)
@@ -32,12 +31,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         }
 
         /* Guardar datos fiscales en el perfil del cliente. */
-        $pdo->prepare('UPDATE usuarios SET rfc = ?, direccion = ? WHERE id = ?')
-            ->execute([$rfc !== '' ? $rfc : null, $direccion !== '' ? $direccion : null, (int)$usuario['id']]);
+        if ($rfc !== '' || $direccion !== '') {
+            usr_actualizar($usuarioId, ['rfc' => $rfc, 'direccion' => $direccion]);
+        }
 
         $r = factura_crear([
             'proyecto_id' => $proyectoId,
-            'usuario_id'  => (int)$usuario['id'],
+            'usuario_id'  => $usuarioId,
             'concepto'    => $concepto !== '' ? $concepto : 'Desarrollo de proyecto',
             'rfc_cliente' => $rfc,
             'emitida_por' => (string)($_POST['emitida_por'] ?? $_SESSION['nombre'] ?? 'Cliente vía portal'),
@@ -52,36 +52,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 }
 
-/* Facturas emitidas para este cliente */
-$facturas = $pdo->prepare('SELECT f.*, s.tipo_servicio, s.presupuesto
-                           FROM facturas f
-                           LEFT JOIN proyectos_inicio pi ON f.proyecto_id = pi.id
-                           LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                           WHERE f.usuario_id = ?
-                           ORDER BY f.creado_en DESC');
-$facturas->execute([(int)$usuario['id']]);
-$facturas = $facturas->fetchAll();
+/* Facturas emitidas para este cliente (con su proyecto y solicitud) */
+$facturas = array_map('factura_con_relaciones', facturas_de_usuario($usuarioId));
 
 /* Proyectos facturables (liquidados o con pagos aprobados) */
 $proyectosFact = [];
-$stmtP = $pdo->prepare('SELECT pi.*, s.tipo_servicio, s.presupuesto
-                        FROM proyectos_inicio pi
-                        LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                        WHERE pi.usuario_id = ?
-                        ORDER BY pi.creado_en DESC');
-$stmtP->execute([(int)$usuario['id']]);
-foreach ($stmtP->fetchAll() as $pr) {
+foreach (proy_de_usuario($usuarioId) as $pr) {
+    $pr = proy_con_cliente($pr);
     $liquidable = in_array($pr['estado'], ['liquidado', 'completado'], true)
         || ((float)$pr['total_proyecto'] > 0 && (float)$pr['saldo_restante'] <= 0.01);
     if (!$liquidable) {
         continue;
     }
-    $pagosProv = proyecto_pagos_aprobados_detalle((int)$pr['id']);
+    $pagosProv = proyecto_pagos_aprobados_detalle($pr['id']);
     if (!$pagosProv) {
         continue;
     }
     $pr['_pagos'] = $pagosProv;
-    $pr['_subtotal'] = array_sum(array_map(fn($pp) => (float)$pp['monto'], $pagosProv));
+    $pr['_subtotal'] = array_sum(array_map(static fn($pp) => (float)$pp['monto'], $pagosProv));
     $proyectosFact[] = $pr;
 }
 ?>
@@ -118,8 +106,8 @@ foreach ($stmtP->fetchAll() as $pr) {
                 <select id="proyectoFactura" class="form-select form-select-lg mb-3" aria-label="Proyecto a facturar">
                     <option value="">— Selecciona un proyecto liquidado —</option>
                     <?php foreach ($proyectosFact as $pr): ?>
-                        <option value="<?= (int)$pr['id'] ?>">
-                            <?= e($pr['tipo_servicio'] ?: 'Proyecto #' . (int)$pr['id']) ?> · Total a facturar: $<?= number_format((float)$pr['_subtotal'] * 1.16, 2) ?> MXN
+                        <option value="<?= $pr['id'] ?>">
+                            <?= e($pr['tipo_servicio'] ?: 'Proyecto #' . $pr['id']) ?> · Total a facturar: $<?= number_format((float)$pr['_subtotal'] * 1.16, 2) ?> MXN
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -211,14 +199,14 @@ foreach ($stmtP->fetchAll() as $pr) {
                             <?php foreach ($facturas as $f): ?>
                                 <tr>
                                     <td class="ps-3 fw-semibold"><?= e($f['folio']) ?></td>
-                                    <td class="small text-muted"><?= e(date('d/m/Y', strtotime($f['creado_en']))) ?></td>
+                                    <td class="small text-muted"><?= e(fecha_php($f['creado_en'], 'd/m/Y')) ?></td>
                                     <td class="small"><?= e($f['concepto']) ?></td>
                                     <td class="small"><?= e($f['rfq_cliente'] ?: '—') ?></td>
                                     <td>$<?= number_format((float)$f['subtotal'], 2) ?></td>
                                     <td>$<?= number_format((float)$f['iva'], 2) ?></td>
                                     <td class="fw-semibold">$<?= number_format((float)$f['total'], 2) ?></td>
                                     <td class="text-end pe-3">
-                                        <a href="factura_pdf.php?id=<?= (int)$f['id'] ?>" class="btn btn-sm btn-outline-primary" title="Descargar PDF"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+                                        <a href="factura_pdf.php?id=<?= $f['id'] ?>" class="btn btn-sm btn-outline-primary" title="Descargar PDF"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

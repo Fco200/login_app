@@ -25,26 +25,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$email) {
             $error = 'Ingresa un correo válido.';
         } else {
-            $stmt = $pdo->prepare("SELECT id, nombre, email FROM usuarios WHERE LOWER(email) = LOWER(?) AND rol = 'admin' LIMIT 1");
-            $stmt->execute([$email]);
-            $solicitante = $stmt->fetch();
+            $solicitante = $email ? usr_por_email((string)$email) : null;
+            if ($solicitante === null || (string)($solicitante['rol'] ?? '') !== 'admin') {
+                $solicitante = null;
+            }
 
             if (!$solicitante) {
                 $error = 'No encontramos un administrador con ese correo.';
             } else {
                 /* Notificar a los demás admins para que gestionen el restablecimiento */
-                $stmtOtros = $pdo->query("SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND id != " . (int)$solicitante['id'] . " AND activo = 1");
-                $otros = $stmtOtros->fetchAll();
+                $otros = array_values(array_filter(
+                    usr_listar('admin', ['activo' => 1]),
+                    static fn($u) => (string)$u['id'] !== (string)$solicitante['id']
+                ));
 
                 if (!$otros) {
                     $error = 'No hay otro administrador disponible para gestionar la solicitud. Contacta al soporte del sistema.';
                 } else {
                     $mensajePredeterminado = 'El administrador ' . $solicitante['nombre'] . ' (' . $solicitante['email'] . ') solicitó restablecer su contraseña. Por favor ingresa a Usuarios y asígnale una nueva clave con su autorización.';
                     foreach ($otros as $otro) {
-                        notificar((int)$otro['id'], 'seguridad', 'Solicitud de restablecimiento de contraseña', $mensajePredeterminado, url_sitio('admin/usuarios.php'));
+                        notificar($otro['id'], 'seguridad', 'Solicitud de restablecimiento de contraseña', $mensajePredeterminado, url_sitio('admin/usuarios.php'));
                     }
                     /* También avisamos al propio solicitante para que sepa que fue enviado */
-                    notificar((int)$solicitante['id'], 'info', 'Solicitud de recuperación enviada', 'Tu solicitud fue enviada a los demás administradores. Ellos gestionarán el restablecimiento de tu contraseña.', url_sitio('admin/login.php'));
+                    notificar($solicitante['id'], 'info', 'Solicitud de recuperación enviada', 'Tu solicitud fue enviada a los demás administradores. Ellos gestionarán el restablecimiento de tu contraseña.', url_sitio('admin/login.php'));
                     $enviada = true;
                 }
             }

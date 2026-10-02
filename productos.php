@@ -15,7 +15,7 @@ require_once 'includes/cabecera.php';
 
 <section class="seccion">
     <div class="container">
-        <?php $productos = $pdo->query('SELECT * FROM productos WHERE activo = 1 ORDER BY id DESC')->fetchAll(); ?>
+        <?php $productos = prd_activos(); ?>
         <?php if (!$productos): ?>
             <div class="text-center py-5">
                 <i class="bi bi-box-seam fs-1 text-primary d-block mb-3"></i>
@@ -44,7 +44,7 @@ require_once 'includes/cabecera.php';
                                 <p class="precio-desde mt-auto mb-3"><b><?= e(formatear_precio((float)$p['precio'])) ?></b></p>
                                 <div class="d-grid gap-2">
                                     <?php if ((int)$p['stock'] > 0): ?>
-                                        <?= form_agregar_carrito((int)$p['id'], 'producto', $p['titulo']) ?>
+                                        <?= form_agregar_carrito($p['id'], 'producto', $p['titulo']) ?>
                                     <?php else: ?>
                                         <button class="btn btn-outline-fv w-100" disabled><i class="bi bi-x-circle me-1"></i>Sin existencias</button>
                                     <?php endif; ?>

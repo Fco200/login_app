@@ -4,26 +4,33 @@ require_once __DIR__ . '/includes/cabecera.php';
 $seccionPortal = 'procesos';
 $titulo = 'Mis procesos';
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'email' => ''];
+$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'email' => '', 'nombre' => $_SESSION['nombre'] ?? 'Cliente'];
+$usuarioId = (string)$usuario['id'];
 
 /* ---------- Confirmar entrega (completar el proceso) ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     if (($_POST['accion'] ?? '') === 'confirmar_entrega') {
-        $proyectoId = (int)($_POST['proyecto_id'] ?? 0);
-        if ($proyectoId > 0) {
-            $st = $pdo->prepare('SELECT id FROM proyectos_inicio WHERE id = ? AND usuario_id = ? AND estado = "en_desarrollo"');
-            $st->execute([$proyectoId, (int)$usuario['id']]);
-            if ($st->fetch()) {
-                $pdo->prepare('UPDATE proyectos_inicio SET estado = "completado" WHERE id = ?')->execute([$proyectoId]);
-                $cartaUrl = url_sitio('portal/carta_agradecimiento.php?proyecto=' . $proyectoId);
-                registrar_historial_proyecto($proyectoId, 'entrega_confirmada', 'El cliente confirmó la recepción del proyecto. ¡Proyecto completado!', (int)$usuario['id']);
-                notificar((int)$usuario['id'], 'exito', '¡Proyecto completado!', 'Confirmaste la entrega. Descarga tu carta de agradecimiento y los entregables finales desde tu proceso.', $cartaUrl);
-                notificar_admins('proyecto', 'Cliente confirmó la entrega', ($usuario['nombre'] ?? 'Cliente') . ' confirmó la entrega del proyecto #' . $proyectoId . '.', url_sitio('admin/procesos.php'));
-                responder(['ok' => true, 'mensaje' => '¡Felicidades por tu proyecto! Tu carta de agradecimiento está lista. Descárgala desde el botón "Carta de agradecimiento".', 'tipo' => 'success', 'destino' => url_sitio('portal/procesos.php?tab=entregados')]);
-            }
+        $proyectoId = trim((string)($_POST['proyecto_id'] ?? ''));
+        if (oid($proyectoId) === null) {
+            responder(['ok' => false, 'mensaje' => 'Datos inválidos.', 'tipo' => 'danger']);
+        }
+        /* Sólo un proyecto en desarrollo y propio puede completarse. */
+        $proy = col_q1('proyectos_inicio', [
+            '_id'        => oid($proyectoId),
+            'usuario_id' => oid($usuarioId),
+            'estado'     => 'en_desarrollo',
+        ]);
+        if ($proy === null) {
             responder(['ok' => false, 'mensaje' => 'El proyecto no está listo para confirmar entrega.', 'tipo' => 'warning']);
         }
-        responder(['ok' => false, 'mensaje' => 'Datos inválidos.', 'tipo' => 'danger']);
+
+        col_actualizar('proyectos_inicio', $proyectoId, ['estado' => 'completado']);
+
+        $cartaUrl = url_sitio('portal/carta_agradecimiento.php?proyecto=' . $proyectoId);
+        registrar_historial_proyecto($proyectoId, 'entrega_confirmada', 'El cliente confirmó la recepción del proyecto. ¡Proyecto completado!', $usuarioId);
+        notificar($usuarioId, 'exito', '¡Proyecto completado!', 'Confirmaste la entrega. Descarga tu carta de agradecimiento y los entregables finales desde tu proceso.', $cartaUrl);
+        notificar_admins('proyecto', 'Cliente confirmó la entrega', ($usuario['nombre'] ?? 'Cliente') . ' confirmó la entrega del proyecto ' . $proyectoId . '.', url_sitio('admin/procesos.php'));
+        responder(['ok' => true, 'mensaje' => '¡Felicidades por tu proyecto! Tu carta de agradecimiento está lista. Descárgala desde el botón "Carta de agradecimiento".', 'tipo' => 'success', 'destino' => url_sitio('portal/procesos.php?tab=entregados')]);
     }
 }
 
@@ -44,45 +51,36 @@ $estadoProyecto = [
 ];
 
 $estadosFiltro = $tab === 'entregados' ? ['completado'] : ['documentacion', 'anticipo_pendiente', 'en_desarrollo', 'liquidado'];
-$inEst = implode(',', array_map(fn($e) => $pdo->quote($e), $estadosFiltro));
 
-$stmt = $pdo->prepare("SELECT pi.*, s.tipo_servicio, s.presupuesto, s.creado_en AS solicitud_creada
-                       FROM proyectos_inicio pi
-                       LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                       WHERE pi.usuario_id = ? AND pi.estado IN ($inEst)
-                       ORDER BY pi.creado_en DESC");
-$stmt->execute([(int)$usuario['id']]);
-$proyectos = $stmt->fetchAll();
+/* Proyectos del cliente en los estados de la pestaña, con su solicitud */
+$proyectos = array_map('proy_con_cliente', proy_de_usuario($usuarioId, $estadosFiltro));
 
-/* Pagos del usuario vinculados por proyecto o solicitud, agrupados por proyecto */
+$idsProy = array_map(static fn($p) => (string)$p['id'], $proyectos);
+$idsSol = array_values(array_filter(array_map(static fn($p) => (string)($p['solicitud_id'] ?? ''), $proyectos)));
+
+/* Pagos vinculados, agrupados por proyecto */
 $pagosMap = [];
-$idsProy = array_map(fn($p) => (int)$p['id'], $proyectos);
-$idsSol = array_map(fn($p) => (int)$p['solicitud_id'], $proyectos);
 if ($idsProy) {
-    $inProy = implode(',', $idsProy);
-    $inSol = $idsSol ? implode(',', $idsSol) : '0';
-    $stmtP = $pdo->query("SELECT p.*, mp.nombre AS metodo_nombre FROM pagos p LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
-                          WHERE p.usuario_id = " . (int)$usuario['id'] . " AND (p.proyecto_id IN ($inProy) OR p.solicitud_id IN ($inSol))
-                          ORDER BY p.creado_en DESC");
-    foreach ($stmtP as $p) {
-        $clave = (int)($p['proyecto_id'] ?: $p['solicitud_id']);
-        $pagosMap[$clave][] = $p;
+    foreach (pag_de_usuario_proyectos($usuarioId, $idsProy, $idsSol) as $p) {
+        $clave = (string)($p['proyecto_id'] ?: ($p['solicitud_id'] ?? ''));
+        if ($clave !== '') {
+            $pagosMap[$clave][] = pag_con_relaciones($p);
+        }
     }
 }
 
 /* Entregables subidos por el equipo, agrupados por proyecto */
-$entregablesMap = [];
-if ($idsProy) {
-    $inProy = implode(',', $idsProy);
-    $stmtE = $pdo->query("SELECT * FROM entregables WHERE proyecto_id IN ($inProy) ORDER BY creado_en DESC");
-    foreach ($stmtE as $en) {
-        $entregablesMap[(int)$en['proyecto_id']][] = $en;
-    }
-}
+$entregablesMap = $idsProy ? ent_por_proyectos($idsProy) : [];
 
-$contEspera = (int)contar_registros('proyectos_inicio', "usuario_id = " . (int)$usuario['id'] . " AND estado IN ('documentacion','anticipo_pendiente','en_desarrollo','liquidado')");
-$contEntregados = (int)contar_registros('proyectos_inicio', "usuario_id = " . (int)$usuario['id'] . " AND estado = 'completado'");
-$contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT id FROM proyectos_inicio WHERE usuario_id = " . (int)$usuario['id'] . ")");
+/* Conteos de las pestañas */
+$conteo = proyectos_conteo_por_estado($usuarioId);
+$contEspera = (int)(($conteo['documentacion'] ?? 0) + ($conteo['anticipo_pendiente'] ?? 0)
+    + ($conteo['en_desarrollo'] ?? 0) + ($conteo['liquidado'] ?? 0));
+$contEntregados = (int)($conteo['completado'] ?? 0);
+$contHist = 0;
+if ($todosProy = proy_ids(['usuario_id' => $usuarioId])) {
+    $contHist = col_contar('proyecto_historial', ['proyecto_id' => ['$in' => array_values(array_filter(array_map('oid', $todosProy)))]]);
+}
 ?>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
@@ -103,15 +101,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
 </div>
 
 <?php if ($tab === 'historial'): ?>
-    <?php
-    $historial = $pdo->query('SELECT h.*, pi.id AS proy_id, s.tipo_servicio, u.nombre AS usuario_nombre
-                              FROM proyecto_historial h
-                              LEFT JOIN proyectos_inicio pi ON h.proyecto_id = pi.id
-                              LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                              LEFT JOIN usuarios u ON h.usuario_id = u.id
-                              WHERE pi.usuario_id = ' . (int)$usuario['id'] . '
-                              ORDER BY h.creado_en DESC LIMIT 120')->fetchAll();
-    ?>
+    <?php $historial = proy_historial_plano(proy_ids(['usuario_id' => $usuarioId]), 120); ?>
     <div class="card portal-card border-0 shadow-sm">
         <div class="card-body p-0">
             <?php if (!$historial): ?>
@@ -125,8 +115,8 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                         <tbody>
                             <?php foreach ($historial as $h): ?>
                                 <tr>
-                                    <td class="ps-4 small text-muted text-nowrap"><?= e(date('d/m/Y H:i', strtotime($h['creado_en']))) ?></td>
-                                    <td class="small">#<?= (int)$h['proy_id'] ?><?php if ($h['tipo_servicio']): ?> · <?= e($h['tipo_servicio']) ?><?php endif; ?></td>
+                                    <td class="ps-4 small text-muted text-nowrap"><?= e(fecha_php($h['creado_en'], 'd/m/Y H:i')) ?></td>
+                                    <td class="small">#<?= $h['proy_id'] ?><?php if ($h['tipo_servicio']): ?> · <?= e($h['tipo_servicio']) ?><?php endif; ?></td>
                                     <td><span class="badge text-bg-light text-capitalize"><?= e(str_replace('_', ' ', $h['accion'])) ?></span></td>
                                     <td class="pe-4 small"><?= e($h['detalle'] ?: '—') ?></td>
                                 </tr>
@@ -155,8 +145,8 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
             $pagadoTotal   = max(0, (float)($p['pagado_total'] ?? 0));
             $esLiquidado   = ($p['estado'] ?? '') === 'liquidado'
                 || ($totalProyecto > 0 && $saldoRestante <= 0.01);
-            $pagos = $pagosMap[(int)$p['id']] ?? ($pagosMap[(int)$p['solicitud_id']] ?? []);
-            $entregables = $entregablesMap[(int)$p['id']] ?? [];
+            $pagos = $pagosMap[$p['id']] ?? ($pagosMap[(string)($p['solicitud_id'] ?? '')] ?? []);
+            $entregables = $entregablesMap[$p['id']] ?? [];
             ?>
             <div class="col-12">
                 <div class="card portal-card border-0 shadow-sm">
@@ -164,10 +154,10 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                             <div>
                                 <h5 class="mb-1">
-                                    <i class="bi <?= $pIco ?> me-2 text-primary"></i><?= e($p['tipo_servicio'] ?: 'Proyecto #' . (int)$p['id']) ?>
+                                    <i class="bi <?= $pIco ?> me-2 text-primary"></i><?= e($p['tipo_servicio'] ?: 'Proyecto #' . $p['id']) ?>
                                 </h5>
                                 <small class="text-muted">
-                                    <i class="bi bi-calendar3 me-1"></i>Iniciado: <?= e(date('d/m/Y', strtotime($p['creado_en']))) ?>
+                                    <i class="bi bi-calendar3 me-1"></i>Iniciado: <?= e(fecha_php($p['creado_en'], 'd/m/Y')) ?>
                                     <?php if ($p['presupuesto']): ?> · <i class="bi bi-cash me-1"></i>Cotización: <?= e($p['presupuesto']) ?><?php endif; ?>
                                 </small>
                             </div>
@@ -279,7 +269,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                                                     <li class="mb-1 d-flex justify-content-between gap-2">
                                                         <span>
                                                             <i class="bi bi-check-circle-fill text-success me-1"></i>$<?= number_format((float)$pg['monto'], 0) ?> MXN
-                                                            <small class="text-muted d-block ms-4"><?= e(date('d/m/Y', strtotime($pg['creado_en']))) ?> · <?= e(ucfirst($pg['tipo_pago'])) ?><?= $pg['estado'] ? ' · ' . e(ucfirst($pg['estado'])) : '' ?></small>
+                                                            <small class="text-muted d-block ms-4"><?= e(fecha_php($pg['creado_en'], 'd/m/Y')) ?> · <?= e(ucfirst($pg['tipo_pago'])) ?><?= $pg['estado'] ? ' · ' . e(ucfirst($pg['estado'])) : '' ?></small>
                                                         </span>
                                                     </li>
                                                 <?php endforeach; ?>
@@ -298,7 +288,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                                             <ul class="list-unstyled small mb-0">
                                                 <?php foreach ($entregables as $en): ?>
                                                     <li class="mb-1">
-                                                        <a href="descargar-entregable.php?id=<?= (int)$en['id'] ?>" class="btn btn-sm <?= $p['estado'] === 'completado' ? 'btn-success' : 'btn-outline-secondary' ?> w-100 text-start">
+                                                        <a href="descargar-entregable.php?id=<?= $en['id'] ?>" class="btn btn-sm <?= $p['estado'] === 'completado' ? 'btn-success' : 'btn-outline-secondary' ?> w-100 text-start">
                                                             <i class="bi bi-download me-1"></i><?= e($en['titulo']) ?>
                                                             <?php if ($en['notas']): ?><small class="d-block text-muted ms-4"><?= e($en['notas']) ?></small><?php endif; ?>
                                                         </a>
@@ -313,7 +303,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
 
                                         <div class="d-flex flex-wrap gap-2 mt-2">
                                             <?php if (in_array($p['estado'], ['documentacion', 'anticipo_pendiente'], true) && $pendientePago): ?>
-                                                <a href="mis-solicitudes#sol-<?= (int)$p['solicitud_id'] ?>" class="btn btn-sm btn-fv"><i class="bi bi-credit-card me-1"></i><?= $p['estado'] === 'documentacion' ? 'Pagar anticipo' : 'Completar anticipo' ?></a>
+                                                <a href="mis-solicitudes#sol-<?= $p['solicitud_id'] ?>" class="btn btn-sm btn-fv"><i class="bi bi-credit-card me-1"></i><?= $p['estado'] === 'documentacion' ? 'Pagar anticipo' : 'Completar anticipo' ?></a>
                                             <?php endif; ?>
                                             <?php if (!$esLiquidado && in_array($p['estado'], ['en_desarrollo', 'anticipo_pendiente'], true)): ?>
                                                 <a href="pagos" class="btn btn-sm btn-outline-success"><i class="bi bi-receipt me-1"></i>Ver saldo y pagos</a>
@@ -325,14 +315,14 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                                                 <form method="POST" class="js-ajax d-inline" onsubmit="return confirm('¿Confirmas que recibiste el proyecto y marcarlo como completado? Esta acción cierra el proceso.');">
                                                     <?= campo_csrf() ?>
                                                     <input type="hidden" name="accion" value="confirmar_entrega">
-                                                    <input type="hidden" name="proyecto_id" value="<?= (int)$p['id'] ?>">
+                                                    <input type="hidden" name="proyecto_id" value="<?= $p['id'] ?>">
                                                     <button class="btn btn-sm btn-success"><i class="bi bi-trophy me-1"></i>Confirmar entrega</button>
                                                 </form>
                                             <?php endif; ?>
                                             <?php if ($p['estado'] === 'completado'): ?>
-                                                <a href="carta_agradecimiento.php?proyecto=<?= (int)$p['id'] ?>" class="btn btn-sm btn-success"><i class="bi bi-envelope-heart me-1"></i>Carta de agradecimiento</a>
+                                                <a href="carta_agradecimiento.php?proyecto=<?= $p['id'] ?>" class="btn btn-sm btn-success"><i class="bi bi-envelope-heart me-1"></i>Carta de agradecimiento</a>
                                             <?php endif; ?>
-                                            <a href="chat?solicitud=<?= (int)$p['solicitud_id'] ?>" class="btn btn-sm btn-outline-fv"><i class="bi bi-chat-dots me-1"></i>Hablar del proyecto</a>
+                                            <a href="chat?solicitud=<?= $p['solicitud_id'] ?>" class="btn btn-sm btn-outline-fv"><i class="bi bi-chat-dots me-1"></i>Hablar del proyecto</a>
                                         </div>
                                     </div>
                                 </div>
@@ -373,10 +363,10 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
 
                         <!-- Bitácora del proyecto -->
                         <?php
-                        $historial = [];
-                        $stH = $pdo->prepare('SELECT h.*, u.nombre AS usuario_nombre FROM proyecto_historial h LEFT JOIN usuarios u ON h.usuario_id = u.id WHERE h.proyecto_id = ? ORDER BY h.creado_en DESC LIMIT 12');
-                        $stH->execute([(int)$p['id']]);
-                        $historial = $stH->fetchAll();
+                        $historial = array_map(
+                            static fn($h) => $h + ['usuario_nombre' => empty($h['usuario_id']) ? 'Sistema' : (usr_por_id($h['usuario_id'])['nombre'] ?? 'Sistema')],
+                            proy_historial($p['id'], 12)
+                        );
                         ?>
                         <?php if ($historial): ?>
                         <div class="mt-4">
@@ -389,7 +379,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                                     <tbody>
                                         <?php foreach ($historial as $h): ?>
                                             <tr>
-                                                <td class="text-muted text-nowrap"><?= e(date('d/m/Y H:i', strtotime($h['creado_en']))) ?></td>
+                                                <td class="text-muted text-nowrap"><?= e(fecha_php($h['creado_en'], 'd/m/Y H:i')) ?></td>
                                                 <td><span class="badge text-bg-light text-capitalize"><?= e(str_replace('_', ' ', $h['accion'])) ?></span></td>
                                                 <td><?= e($h['detalle']) ?></td>
                                                 <td class="text-muted"><?= e($h['usuario_nombre'] ?? 'Sistema') ?></td>

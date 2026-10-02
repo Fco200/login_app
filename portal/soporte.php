@@ -5,28 +5,35 @@ requiere_sesion();
 $seccionPortal = 'soporte';
 $titulo = 'Soporte técnico';
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
+$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
+$usuarioId = (string)$usuario['id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verificar_csrf() || !empty($_POST['empresa'])) {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
 
-    $categorias = ['problema', 'duda', 'sugerencia', 'otro'];
-    $categoria = in_array($_POST['categoria'] ?? '', $categorias, true) ? $_POST['categoria'] : 'problema';
-    $pagina = mb_substr(trim($_POST['pagina'] ?? ''), 0, 255);
-    $descripcion = trim($_POST['descripcion'] ?? '');
+    $categoria = in_array($_POST['categoria'] ?? '', sop_categorias(), true) ? (string)$_POST['categoria'] : 'problema';
+    $pagina = mb_substr(trim((string)($_POST['pagina'] ?? '')), 0, 255);
+    $descripcion = trim((string)($_POST['descripcion'] ?? ''));
 
     if (mb_strlen($descripcion) < 10) {
         responder(['ok' => false, 'mensaje' => 'Describe el problema o tu duda con al menos 10 caracteres.', 'tipo' => 'danger']);
     }
 
-    $pdo->prepare('INSERT INTO soporte (usuario_id, nombre, email, categoria, pagina, descripcion) VALUES (?, ?, ?, ?, ?, ?)')
-        ->execute([(int)$usuario['id'], $usuario['nombre'], $usuario['email'], $categoria, $pagina !== '' ? $pagina : null, mb_substr($descripcion, 0, 3000)]);
+    $r = sop_crear([
+        'usuario_id'  => $usuarioId,
+        'nombre'      => (string)$usuario['nombre'],
+        'email'       => (string)$usuario['email'],
+        'categoria'   => $categoria,
+        'pagina'      => $pagina,
+        'descripcion' => mb_substr($descripcion, 0, 3000),
+    ]);
+    if (!$r['ok']) {
+        responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+    }
 
-    $idReporte = (int)$pdo->lastInsertId();
-    notificar_admins('soporte', 'Nuevo reporte de soporte', $usuario['nombre'] . ' envió un reporte #' . $idReporte . ' (' . $categoria . ').', url_sitio('admin/soporte.php'));
-
+    /* sop_crear ya notifica al equipo; aquí se personaliza el mensaje. */
     responder([
         'ok'      => true,
         'titulo'  => '¡Reporte enviado!',
@@ -35,9 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ]);
 }
 
-$stmt = $pdo->prepare('SELECT * FROM soporte WHERE usuario_id = ? OR LOWER(email) = LOWER(?) ORDER BY creado_en DESC LIMIT 50');
-$stmt->execute([(int)$usuario['id'], $usuario['email']]);
-$reportes = $stmt->fetchAll();
+$reportes = sop_de_cliente($usuarioId, (string)$usuario['email'], 50);
 
 $estadoR = fn(string $est) => match ($est) {
     'nuevo'     => ['badge text-bg-danger', 'bi-exclamation-circle', 'Nuevo'],
@@ -113,7 +118,7 @@ require_once __DIR__ . '/includes/cabecera.php';
                                         <?php if ($r['respuesta']): ?>
                                             <div class="alert alert-fv-light small py-2 mb-1"><i class="bi bi-reply me-1"></i><b>Respuesta del equipo:</b> <?= e($r['respuesta']) ?></div>
                                         <?php endif; ?>
-                                        <small class="text-muted"><i class="bi bi-clock me-1"></i><?= e(date('d/m/Y H:i', strtotime($r['creado_en']))) ?></small>
+                                        <small class="text-muted"><i class="bi bi-clock me-1"></i><?= e(fecha_php($r['creado_en'], 'd/m/Y H:i')) ?></small>
                                     </div>
                                     <span class="<?= $bg ?>"><i class="bi <?= $ic ?> me-1"></i><?= $txt ?></span>
                                 </div>

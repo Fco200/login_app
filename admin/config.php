@@ -27,12 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         exit;
     }
 
+    $cambios = [];
     foreach ($_POST as $clave => $valor) {
         if (str_starts_with($clave, 'cfg_')) {
-            $real = substr($clave, 4);
-            $stmt = $pdo->prepare('INSERT INTO datos_sitio (clave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)');
-            $stmt->execute([$real, is_array($valor) ? implode(', ', $valor) : trim((string)$valor)]);
+            $cambios[substr($clave, 4)] = is_array($valor) ? implode(', ', $valor) : trim((string)$valor);
         }
+    }
+    if ($cambios) {
+        sitio_guardar_varios($cambios);
     }
     flash('Configuración guardada correctamente.');
     header('Location: config.php#correo');

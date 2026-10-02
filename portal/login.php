@@ -16,20 +16,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = trim($_POST['password'] ?? '');
         if ($email === '' || $password === '') {
             $error = 'Completa tu correo y contraseña.';
-        } else {
-            $stmt = $pdo->prepare('SELECT id, nombre, email, password, rol, activo FROM usuarios WHERE email = ? LIMIT 1');
-            $stmt->execute([$email]);
-            $usuario = $stmt->fetch();
-            if (!$usuario || !password_verify($password, $usuario['password'])) {
-                $error = 'Correo o contraseña incorrectos.';
-            } elseif ((int)($usuario['activo'] ?? 1) !== 1) {
-                $error = 'Tu cuenta está desactivada. Contacta al administrador.';
-            } else {
-                login_ok($usuario);
-                header('Location: index.php');
-                exit;
-            }
-        }
+} else {
+              $usuario = usr_por_email($email);
+              if (!$usuario || !usr_verificar_password($usuario, $password)) {
+                  $error = 'Correo o contraseña incorrectos.';
+              } elseif ((int)($usuario['activo'] ?? 1) !== 1) {
+                  $error = 'Tu cuenta está desactivada. Contacta al administrador.';
+              } else {
+                  login_ok($usuario);
+                  header('Location: index.php');
+                  exit;
+              }
+          }
     }
 }
 ?>

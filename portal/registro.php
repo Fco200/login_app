@@ -35,26 +35,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($password !== $confirmar) {
             $error = 'Las contraseñas no coinciden.';
         } else {
-            try {
-                $pdo->prepare('INSERT INTO usuarios (nombre, email, telefono, password, rol, activo) VALUES (?, ?, ?, ?, ?, 1)')
-                    ->execute([$valores['nombre'], $email, $valores['telefono'], password_hash($password, PASSWORD_BCRYPT), 'cliente']);
+            $nuevo = usr_crear([
+                'nombre'   => $valores['nombre'],
+                'email'    => (string)$email,
+                'telefono' => $valores['telefono'],
+                'password' => $password,
+                'rol'      => 'cliente',
+                'activo'   => 1,
+            ]);
+            if (!empty($nuevo['ok'])) {
                 $nuevo = [
-                    'id'     => (int)$pdo->lastInsertId(),
+                    'id'     => (string)$nuevo['id'],
                     'nombre' => $valores['nombre'],
                     'rol'    => 'cliente',
                 ];
                 login_ok($nuevo);
-                notificar((int)$nuevo['id'], 'bienvenida_portal', '¡Bienvenido a tu portal!',
+                notificar($nuevo['id'], 'bienvenida_portal', '¡Bienvenido a tu portal!',
                     'Aquí puedes seguir tus solicitudes, chatear con nosotros y jugar mientras esperas.', 'index.php');
                 header('Location: index.php');
                 exit;
-            } catch (PDOException $e) {
-                if ($e->getCode() === '23000') {
-                    $error = 'Ese correo ya está registrado. Intenta iniciar sesión.';
-                } else {
-                    $error = 'No se pudo crear la cuenta. Intenta de nuevo.';
-                }
             }
+            $error = $nuevo['mensaje'] ?? 'No se pudo crear la cuenta. Intenta de nuevo.';
         }
     }
 }

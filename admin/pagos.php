@@ -11,52 +11,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
     /* ---- Métodos de pago ---- */
     if ($accion === 'guardar_metodo') {
-        $id = (int)($_POST['id'] ?? 0);
+        $id = trim((string)($_POST['id'] ?? ''));
         $nombre = trim($_POST['nombre'] ?? '');
         if ($nombre === '') {
             flash('El nombre del método de pago es obligatorio.', 'danger');
             header('Location: pagos.php');
             exit;
         }
-        $descripcion = trim($_POST['descripcion'] ?? '');
-        $detalles = trim($_POST['detalles_cuenta'] ?? '');
-        $instrucciones = trim($_POST['instrucciones'] ?? '');
-        $icono = trim($_POST['icono'] ?? 'bi-credit-card');
-        $activo = isset($_POST['activo']) ? 1 : 0;
-
-        if ($id > 0) {
-            $pdo->prepare('UPDATE metodos_pago SET nombre=?, descripcion=?, detalles_cuenta=?, instrucciones=?, icono=?, activo=? WHERE id=?')
-                ->execute([$nombre, $descripcion, $detalles, $instrucciones, $icono, $activo, $id]);
-            flash('Método de pago actualizado.');
-        } else {
-            $pdo->prepare('INSERT INTO metodos_pago (nombre, descripcion, detalles_cuenta, instrucciones, icono, activo) VALUES (?,?,?,?,?,?)')
-                ->execute([$nombre, $descripcion, $detalles, $instrucciones, $icono, $activo]);
-            flash('Método de pago creado.');
-        }
+        $res = mp_guardar($id, [
+            'nombre'          => $nombre,
+            'descripcion'     => trim($_POST['descripcion'] ?? ''),
+            'detalles_cuenta' => trim($_POST['detalles_cuenta'] ?? ''),
+            'instrucciones'   => trim($_POST['instrucciones'] ?? ''),
+            'icono'           => trim($_POST['icono'] ?? 'bi-credit-card'),
+            'activo'          => isset($_POST['activo']) ? 1 : 0,
+        ]);
+        flash($res['mensaje'] ?? 'Método de pago guardado.');
         header('Location: pagos.php');
         exit;
     }
 
     if ($accion === 'eliminar_metodo' && isset($_POST['id'])) {
-        $pdo->prepare('UPDATE metodos_pago SET activo = 0 WHERE id = ?')->execute([(int)$_POST['id']]);
-        flash('Método de pago desactivado.', 'warning');
+        $res = mp_alternar_activo(trim((string)$_POST['id']), false);
+        flash($res['mensaje'] ?? 'Método de pago desactivado.', 'warning');
         header('Location: pagos.php');
         exit;
     }
 
     if ($accion === 'activar_metodo' && isset($_POST['id'])) {
-        $pdo->prepare('UPDATE metodos_pago SET activo = 1 WHERE id = ?')->execute([(int)$_POST['id']]);
-        flash('Método de pago activado.');
+        $res = mp_alternar_activo(trim((string)$_POST['id']), true);
+        flash($res['mensaje'] ?? 'Método de pago activado.');
         header('Location: pagos.php');
         exit;
     }
 
     /* ---- Registro de pagos: cambiar estado (con recálculo y bitácora) ---- */
     if ($accion === 'estado_pago') {
-        $id = (int)($_POST['id'] ?? 0);
+        $id = trim((string)($_POST['id'] ?? ''));
         $estado = in_array($_POST['estado'] ?? '', ['pendiente', 'aprobado', 'rechazado'], true) ? $_POST['estado'] : '';
         $notasAdmin = trim($_POST['notas'] ?? '');
-        if ($id <= 0) {
+        if (oid($id) === null) {
             responder(['ok' => false, 'mensaje' => 'Pago no encontrado.', 'tipo' => 'danger']);
         }
         if ($estado === 'pendiente') {
@@ -64,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         }
         $r = pago_aprobar_o_rechazar($id, $estado, $notasAdmin);
         responder([
-            'ok'          => $r['ok'],
+            'ok'          => !empty($r['ok']),
             'mensaje'     => $r['mensaje'],
             'accion'      => 'estado_pago',
             'pago_id'     => $id,
@@ -77,11 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
     /* ---- Adjuntar comprobante desde el panel ---- */
     if ($accion === 'adjuntar_comprobante' && isset($_POST['id'])) {
-        $id = (int)$_POST['id'];
+        $id = trim((string)$_POST['id']);
+        if (oid($id) === null) {
+            responder(['ok' => false, 'mensaje' => 'Pago no encontrado.', 'tipo' => 'danger']);
+        }
         if (!empty($_FILES['comprobante']['name'])) {
             $res = subir_archivo('comprobante', 'comprobantes', ['jpg', 'jpeg', 'png', 'pdf', 'webp'], 8);
             if ($res['ok']) {
-                $pdo->prepare('UPDATE pagos SET comprobante = ? WHERE id = ?')->execute([$res['archivo'], $id]);
+                pag_adjuntar_comprobante($id, (string)$res['archivo']);
                 responder([
                     'ok'           => true,
                     'mensaje'      => 'Comprobante adjuntado.',
@@ -97,12 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
     /* ---- Eliminar pago ---- */
     if ($accion === 'eliminar_pago' && isset($_POST['id'])) {
-        $stmtP = $pdo->prepare('SELECT comprobante, usuario_id, monto FROM pagos WHERE id = ?');
-        $stmtP->execute([(int)$_POST['id']]);
-        $pago = $stmtP->fetch();
+        $id = trim((string)$_POST['id']);
+        $pago = oid($id) !== null ? pag_por_id($id) : null;
         if ($pago) {
             eliminar_archivo($pago['comprobante']);
-            $pdo->prepare('DELETE FROM pagos WHERE id = ?')->execute([(int)$_POST['id']]);
+            pag_eliminar($id);
             flash('Pago eliminado.', 'warning');
         }
         header('Location: pagos.php');
@@ -111,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
     /* ---- Productos: guardar / eliminar ---- */
     if ($accion === 'guardar_producto') {
-        $id = (int)($_POST['id'] ?? 0);
+        $id = trim((string)($_POST['id'] ?? ''));
         $tituloP = trim($_POST['titulo'] ?? '');
         if ($tituloP === '') {
             flash('El título del producto es obligatorio.', 'danger');
@@ -119,17 +115,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             exit;
         }
         $slugP = slugify($tituloP) ?: ('producto-' . date('YmdHis'));
-        $descripcionP = trim($_POST['descripcion'] ?? '');
-        $precioP = (float)($_POST['precio'] ?? 0);
-        $categoriaP = trim($_POST['categoria'] ?? '');
-        $stockP = (int)($_POST['stock'] ?? 0);
-        $activoP = isset($_POST['activo']) ? 1 : 0;
         $imagenP = null;
 
-        if ($id > 0) {
-            $stmtOld = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
-            $stmtOld->execute([$id]);
-            $old = $stmtOld->fetch();
+        if (oid($id) !== null) {
+            $old = prd_por_id($id);
             if ($old) $imagenP = $old['imagen'];
         }
 
@@ -145,26 +134,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             }
         }
 
-        if ($id > 0) {
-            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, stock=?, activo=? WHERE id=?')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP, $id]);
-            flash('Producto actualizado.');
-        } else {
-            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, stock, activo) VALUES (?,?,?,?,?,?,?,?)')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP]);
-            flash('Producto creado.');
-        }
+        $res = prd_guardar($id, [
+            'titulo'      => $tituloP,
+            'slug'        => $slugP,
+            'descripcion' => trim($_POST['descripcion'] ?? ''),
+            'precio'      => (float)($_POST['precio'] ?? 0),
+            'imagen'      => $imagenP,
+            'categoria'   => trim($_POST['categoria'] ?? ''),
+            'stock'       => (int)($_POST['stock'] ?? 0),
+            'activo'      => isset($_POST['activo']) ? 1 : 0,
+        ]);
+        flash($res['mensaje'] ?? 'Producto guardado.');
         header('Location: pagos.php');
         exit;
     }
 
     if ($accion === 'eliminar_producto' && isset($_POST['id'])) {
-        $stmtP = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
-        $stmtP->execute([(int)$_POST['id']]);
-        $prod = $stmtP->fetch();
+        $id = trim((string)$_POST['id']);
+        $prod = oid($id) !== null ? prd_por_id($id) : null;
         if ($prod) eliminar_archivo($prod['imagen']);
-        $pdo->prepare('DELETE FROM carrito WHERE producto_id = ?')->execute([(int)$_POST['id']]);
-        $pdo->prepare('DELETE FROM productos WHERE id = ?')->execute([(int)$_POST['id']]);
+        prd_eliminar($id);
         flash('Producto eliminado.', 'warning');
         header('Location: pagos.php');
         exit;
@@ -172,36 +161,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 }
 
 /* ---------- Datos ---------- */
-$metodos = $pdo->query('SELECT * FROM metodos_pago ORDER BY id ASC')->fetchAll();
-$productos = $pdo->query('SELECT * FROM productos ORDER BY id DESC')->fetchAll();
-$pagos = $pdo->query('SELECT p.*, mp.nombre AS metodo_nombre, u.nombre AS cliente_nombre, u.email AS cliente_email,
-                             s.tipo_servicio,
-                             pi.id AS proyecto_id, pi.total_proyecto, pi.pagado_total, pi.saldo_restante, pi.estado AS proyecto_estado
-                      FROM pagos p
-                      LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
-                      LEFT JOIN usuarios u ON p.usuario_id = u.id
-                      LEFT JOIN solicitudes s ON p.solicitud_id = s.id
-                      LEFT JOIN proyectos_inicio pi ON pi.id = p.proyecto_id
-                      ORDER BY p.creado_en DESC')->fetchAll();
+$metodos = mp_todos();
+$productos = prd_todos();
+$pagos = array_map('pag_con_relaciones', pag_listar_panel());
 
 $filtroEstado = $_GET['estado'] ?? '';
 if (!in_array($filtroEstado, ['pendiente', 'aprobado', 'rechazado'], true)) {
     $filtroEstado = '';
 }
-$filtroCli = (int)($_GET['cliente'] ?? 0);
-$filtroFecha = $_GET['fecha'] ?? '';
+$filtroCli = trim((string)($_GET['cliente'] ?? ''));
+if (oid($filtroCli) === null) {
+    $filtroCli = '';
+}
+$filtroFecha = trim((string)($_GET['fecha'] ?? ''));
 $pagosFiltrados = $pagos;
 if ($filtroEstado !== '') {
-    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => $p['estado'] === $filtroEstado);
+    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => ($p['estado'] ?? '') === $filtroEstado);
 }
-if ($filtroCli > 0) {
-    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => (int)$p['usuario_id'] === $filtroCli);
+if ($filtroCli !== '') {
+    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => (string)($p['usuario_id'] ?? '') === $filtroCli);
 }
 if ($filtroFecha !== '') {
-    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => str_starts_with($p['creado_en'], $filtroFecha));
+    $pagosFiltrados = array_filter($pagosFiltrados, fn($p) => fecha_php($p['creado_en'] ?? '', 'Y-m-d') === $filtroFecha);
 }
 
-$clientes = $pdo->query("SELECT DISTINCT u.id, u.nombre, u.email FROM pagos p JOIN usuarios u ON p.usuario_id = u.id ORDER BY u.nombre ASC")->fetchAll();
+$clientes = pag_clientes_con_pagos();
 
 $estadoBadge = [
     'pendiente' => 'bg-warning text-dark',
@@ -240,7 +224,7 @@ $estadoBadge = [
                     <select name="cliente" class="form-select form-select-sm">
                         <option value="0">Todos</option>
                         <?php foreach ($clientes as $c): ?>
-                            <option value="<?= (int)$c['id'] ?>" <?= $filtroCli === (int)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre']) ?></option>
+                            <option value="<?= e($c['id']) ?>" <?= $filtroCli === (string)$c['id'] ? 'selected' : '' ?>><?= e($c['nombre']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -264,9 +248,9 @@ $estadoBadge = [
                             <tr><td colspan="9" class="text-center text-muted py-4">No hay pagos en esta vista.</td></tr>
                         <?php else: foreach ($pagosFiltrados as $p): ?>
                             <tr>
-                                <td class="ps-3 small text-muted"><?= e(date('d/m/Y H:i', strtotime($p['creado_en']))) ?></td>
+                                <td class="ps-3 small text-muted"><?= e(fecha_php($p['creado_en'], 'd/m/Y H:i')) ?></td>
                                 <td>
-                                    <b><?= e($p['cliente_nombre'] ?: 'Cliente #' . (int)$p['usuario_id']) ?></b>
+                                    <b><?= e($p['cliente_nombre'] ?: 'Cliente #' . (string)$p['usuario_id']) ?></b>
                                     <br><small class="text-muted"><?= e($p['cliente_email'] ?: '—') ?></small>
                                 </td>
                                 <td class="small"><?= e($p['tipo_servicio'] ?: 'Compra de productos') ?></td>
@@ -274,29 +258,29 @@ $estadoBadge = [
                                 <td class="small"><span class="text-capitalize"><?= e($p['tipo_pago']) ?></span></td>
                                 <td class="fw-semibold">$<?= number_format((float)$p['monto'], 0) ?> MXN</td>
                                 <td>
-                                    <span class="badge badge-estado text-uppercase text-bg-<?= $p['estado'] === 'aprobado' ? 'success' : ($p['estado'] === 'rechazado' ? 'danger' : 'warning') ?>" style="color:#fff;" data-estado-pago="<?= (int)$p['id'] ?>">
+                                    <span class="badge badge-estado text-uppercase text-bg-<?= $p['estado'] === 'aprobado' ? 'success' : ($p['estado'] === 'rechazado' ? 'danger' : 'warning') ?>" style="color:#fff;" data-estado-pago="<?= e($p['id']) ?>">
                                         <?= e($p['estado']) ?>
                                     </span>
                                     <?php if ($p['notas']): ?>
-                                        <br><small class="text-muted" data-nota-pago="<?= (int)$p['id'] ?>"><?= e(mb_strimwidth($p['notas'], 0, 40, '…')) ?></small>
+                                        <br><small class="text-muted" data-nota-pago="<?= e($p['id']) ?>"><?= e(mb_strimwidth($p['notas'], 0, 40, '…')) ?></small>
                                     <?php else: ?>
-                                        <small class="text-muted d-none" data-nota-pago="<?= (int)$p['id'] ?>"></small>
+                                        <small class="text-muted d-none" data-nota-pago="<?= e($p['id']) ?>"></small>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($p['comprobante']): ?>
                                         <a href="../<?= e($p['comprobante']) ?>" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver comprobante"><i class="bi bi-file-earmark-arrow-down"></i></a>
                                     <?php else: ?>
-                                        <span class="text-muted small" data-comprobante="<?= (int)$p['id'] ?>">—</span>
+                                        <span class="text-muted small" data-comprobante="<?= e($p['id']) ?>">—</span>
                                     <?php endif; ?>
-                                    <span data-recibo-pago="<?= (int)$p['id'] ?>">
+                                    <span data-recibo-pago="<?= e($p['id']) ?>">
                                         <?php if ($p['estado'] === 'aprobado'): ?>
-                                            <a href="../portal/recibo.php?id=<?= (int)$p['id'] ?>" target="_blank" class="btn btn-sm btn-outline-success" title="Recibo / factura"><i class="bi bi-receipt"></i></a>
+                                            <a href="../portal/recibo.php?id=<?= e($p['id']) ?>" target="_blank" class="btn btn-sm btn-outline-success" title="Recibo / factura"><i class="bi bi-receipt"></i></a>
                                         <?php endif; ?>
                                     </span>
                                 </td>
                                 <td class="text-end pe-3">
-                                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#detallePago<?= (int)$p['id'] ?>" title="Gestionar"><i class="bi bi-gear"></i></button>
+                                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#detallePago<?= e($p['id']) ?>" title="Gestionar"><i class="bi bi-gear"></i></button>
                                 </td>
                             </tr>
                         <?php endforeach; endif; ?>
@@ -338,14 +322,14 @@ $estadoBadge = [
                                         <form method="POST" class="d-inline" onsubmit="return confirm('¿Desactivar este método de pago?')">
                                             <?= campo_csrf() ?>
                                             <input type="hidden" name="accion" value="eliminar_metodo">
-                                            <input type="hidden" name="id" value="<?= (int)$m['id'] ?>">
+                                            <input type="hidden" name="id" value="<?= e($m['id']) ?>">
                                             <button class="btn btn-sm btn-outline-danger" title="Desactivar"><i class="bi bi-eye-slash"></i></button>
                                         </form>
                                     <?php else: ?>
                                         <form method="POST" class="d-inline">
                                             <?= campo_csrf() ?>
                                             <input type="hidden" name="accion" value="activar_metodo">
-                                            <input type="hidden" name="id" value="<?= (int)$m['id'] ?>">
+                                            <input type="hidden" name="id" value="<?= e($m['id']) ?>">
                                             <button class="btn btn-sm btn-outline-success" title="Activar"><i class="bi bi-eye"></i></button>
                                         </form>
                                     <?php endif; ?>
@@ -390,7 +374,7 @@ $estadoBadge = [
                                     <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este producto?')">
                                         <?= campo_csrf() ?>
                                         <input type="hidden" name="accion" value="eliminar_producto">
-                                        <input type="hidden" name="id" value="<?= (int)$pr['id'] ?>">
+                                        <input type="hidden" name="id" value="<?= e($pr['id']) ?>">
                                         <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
                                     </form>
                                 </td>
@@ -508,11 +492,11 @@ $estadoBadge = [
 
 <?php foreach ($pagosFiltrados as $p): ?>
     <!-- Modal detalle / gestión de pago -->
-    <div class="modal fade" id="detallePago<?= (int)$p['id'] ?>" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="detallePago<?= e($p['id']) ?>" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title fw-bold"><i class="bi bi-credit-card me-2 text-primary"></i>Pago #<?= (int)$p['id'] ?></h5>
+                    <h5 class="modal-title fw-bold"><i class="bi bi-credit-card me-2 text-primary"></i>Pago #<?= e($p['id']) ?></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body">
@@ -522,7 +506,7 @@ $estadoBadge = [
                         <div class="col-6"><span class="text-muted d-block">Método</span><b><?= e($p['metodo_nombre'] ?: '—') ?></b></div>
                         <div class="col-6"><span class="text-muted d-block">Monto</span><b class="text-primary">$<?= number_format((float)$p['monto'], 0) ?> MXN</b></div>
                         <div class="col-6"><span class="text-muted d-block">Tipo</span><b class="text-capitalize"><?= e($p['tipo_pago']) ?></b></div>
-                        <div class="col-6"><span class="text-muted d-block">Fecha</span><b><?= e(date('d/m/Y H:i', strtotime($p['creado_en']))) ?></b></div>
+                        <div class="col-6"><span class="text-muted d-block">Fecha</span><b><?= e(fecha_php($p['creado_en'], 'd/m/Y H:i')) ?></b></div>
                         <?php if ($p['comprobante']): ?>
                             <div class="col-12">
                                 <span class="text-muted d-block">Comprobante</span>
@@ -535,7 +519,7 @@ $estadoBadge = [
                     <?php if (!empty($p['proyecto_id'])): ?>
                         <div class="border rounded bg-light p-2 small mb-3">
                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                <b><i class="bi bi-code-slash me-1 text-primary"></i>Proyecto #<?= (int)$p['proyecto_id'] ?></b>
+                                <b><i class="bi bi-code-slash me-1 text-primary"></i>Proyecto #<?= e(substr((string)$p['proyecto_id'], -6)) ?></b>
                                 <?php if (($p['proyecto_estado'] ?? '') === 'liquidado'): ?>
                                     <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Liquidado</span>
                                 <?php endif; ?>
@@ -551,15 +535,15 @@ $estadoBadge = [
                     <form method="POST" class="border-top pt-3 js-ajax">
                         <?= campo_csrf() ?>
                         <input type="hidden" name="accion" value="estado_pago">
-                        <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+                        <input type="hidden" name="id" value="<?= e($p['id']) ?>">
                         <label class="form-label small fw-semibold">Cambiar estado</label>
                         <div class="d-flex flex-wrap gap-2 align-items-center">
-                            <select name="estado" id="selPagoEstado-<?= (int)$p['id'] ?>" class="form-select form-select-sm" style="max-width:180px;">
+                            <select name="estado" id="selPagoEstado-<?= e($p['id']) ?>" class="form-select form-select-sm" style="max-width:180px;">
                                 <option value="pendiente" <?= $p['estado'] === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
                                 <option value="aprobado" <?= $p['estado'] === 'aprobado' ? 'selected' : '' ?>>Aprobado</option>
                                 <option value="rechazado" <?= $p['estado'] === 'rechazado' ? 'selected' : '' ?>>Rechazado</option>
                             </select>
-                            <input type="text" name="notas" id="inpPagoNotas-<?= (int)$p['id'] ?>" class="form-control form-control-sm flex-grow-1" placeholder="Nota (opcional)" value="<?= e($p['notas']) ?>">
+                            <input type="text" name="notas" id="inpPagoNotas-<?= e($p['id']) ?>" class="form-control form-control-sm flex-grow-1" placeholder="Nota (opcional)" value="<?= e($p['notas']) ?>">
                             <button class="btn btn-sm btn-fv"><i class="bi bi-check-lg me-1"></i>Actualizar</button>
                         </div>
                     </form>
@@ -567,7 +551,7 @@ $estadoBadge = [
                     <form method="POST" enctype="multipart/form-data" class="border-top pt-3 mt-3 js-ajax">
                         <?= campo_csrf() ?>
                         <input type="hidden" name="accion" value="adjuntar_comprobante">
-                        <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+                        <input type="hidden" name="id" value="<?= e($p['id']) ?>">
                         <label class="form-label small fw-semibold">Adjuntar comprobante de pago</label>
                         <div class="d-flex gap-2 align-items-center">
                             <input type="file" name="comprobante" class="form-control form-control-sm" accept="image/*,.pdf" required>
@@ -579,7 +563,7 @@ $estadoBadge = [
                     <form method="POST" onsubmit="return confirm('¿Eliminar este pago?')">
                         <?= campo_csrf() ?>
                         <input type="hidden" name="accion" value="eliminar_pago">
-                        <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+                        <input type="hidden" name="id" value="<?= e($p['id']) ?>">
                         <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Eliminar</button>
                     </form>
                     <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>

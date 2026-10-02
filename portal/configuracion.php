@@ -3,49 +3,51 @@ $seccionPortal = 'configuracion';
 $titulo = 'Configuración';
 require_once __DIR__ . '/includes/cabecera.php';
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => '', 'telefono' => '', 'rfc' => '', 'direccion' => ''];
+$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => '', 'telefono' => '', 'rfc' => '', 'direccion' => ''];
+$id = (string)$usuario['id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verificar_csrf() || !empty($_POST['empresa'])) {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
     $accion = $_POST['accion'] ?? '';
-    $id = (int)$usuario['id'];
 
     /* ---------- Datos personales ---------- */
     if ($accion === 'datos') {
-        $nombre = trim($_POST['nombre'] ?? '');
-        $telefono = trim($_POST['telefono'] ?? '');
+        $nombre = trim((string)($_POST['nombre'] ?? ''));
+        $telefono = trim((string)($_POST['telefono'] ?? ''));
         if ($nombre === '' || mb_strlen($telefono) < 10) {
             responder(['ok' => false, 'mensaje' => 'El nombre es obligatorio y el teléfono debe tener al menos 10 dígitos.', 'tipo' => 'danger']);
         }
-        $GLOBALS['pdo']->prepare('UPDATE usuarios SET nombre = ?, telefono = ? WHERE id = ?')
-            ->execute([$nombre, $telefono, $id]);
+        $r = usr_actualizar($id, ['nombre' => $nombre, 'telefono' => $telefono]);
+        if (!$r['ok']) {
+            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+        }
         $_SESSION['nombre'] = $nombre;
         responder(['ok' => true, 'mensaje' => 'Tus datos se guardaron correctamente.', 'destino' => 'configuracion#datos']);
     }
 
     /* ---------- Datos fiscales ---------- */
     if ($accion === 'fiscales') {
-        $rfc = strtoupper(trim($_POST['rfc'] ?? ''));
-        $direccion = trim($_POST['direccion'] ?? '');
+        $rfc = strtoupper(trim((string)($_POST['rfc'] ?? '')));
+        $direccion = trim((string)($_POST['direccion'] ?? ''));
         if ($rfc !== '' && !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{2,3}$/', $rfc)) {
             responder(['ok' => false, 'mensaje' => 'El RFC no tiene un formato válido.', 'tipo' => 'danger']);
         }
-        $GLOBALS['pdo']->prepare('UPDATE usuarios SET rfc = ?, direccion = ? WHERE id = ?')
-            ->execute([$rfc !== '' ? $rfc : null, $direccion !== '' ? $direccion : null, $id]);
+        $r = usr_actualizar($id, ['rfc' => $rfc, 'direccion' => $direccion]);
+        if (!$r['ok']) {
+            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+        }
         responder(['ok' => true, 'mensaje' => 'Tus datos fiscales se guardaron. Se usarán en tus facturas.', 'destino' => 'configuracion#fiscales']);
     }
 
     /* ---------- Cambiar contraseña ---------- */
     if ($accion === 'seguridad') {
-        $actual = trim($_POST['password_actual'] ?? '');
-        $nueva = trim($_POST['password_nueva'] ?? '');
-        $confirm = trim($_POST['password_confirm'] ?? '');
-        $st = $GLOBALS['pdo']->prepare('SELECT password FROM usuarios WHERE id = ?');
-        $st->execute([$id]);
-        $hash = $st->fetchColumn();
-        if (!$hash || !password_verify($actual, $hash)) {
+        $actual = trim((string)($_POST['password_actual'] ?? ''));
+        $nueva = trim((string)($_POST['password_nueva'] ?? ''));
+        $confirm = trim((string)($_POST['password_confirm'] ?? ''));
+        $hash = (string)(usr_por_id($id)['password'] ?? '');
+        if ($hash === '' || !password_verify($actual, $hash)) {
             responder(['ok' => false, 'mensaje' => 'La contraseña actual no es correcta.', 'tipo' => 'danger']);
         }
         if (strlen($nueva) < 6) {
@@ -54,22 +56,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($nueva !== $confirm) {
             responder(['ok' => false, 'mensaje' => 'La confirmación no coincide con la nueva contraseña.', 'tipo' => 'danger']);
         }
-        $GLOBALS['pdo']->prepare('UPDATE usuarios SET password = ? WHERE id = ?')
-            ->execute([password_hash($nueva, PASSWORD_BCRYPT), $id]);
+        $r = usr_actualizar($id, ['password' => $nueva]);
+        if (!$r['ok']) {
+            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+        }
         responder(['ok' => true, 'mensaje' => 'Contraseña actualizada correctamente.', 'destino' => 'configuracion#seguridad']);
     }
 
     /* ---------- Preferencias / boletín ---------- */
     if ($accion === 'boletin') {
-        $st = $GLOBALS['pdo']->prepare('SELECT activo FROM suscripciones WHERE email = ? LIMIT 1');
-        $st->execute([$usuario['email']]);
-        $existente = $st->fetch();
+        $email = (string)$usuario['email'];
+        $existente = suscripcion_activa($email);
         if (($_POST['boletin_accion'] ?? '') === 'suscribir') {
-            $GLOBALS['pdo']->prepare('INSERT INTO suscripciones (email) VALUES (?) ON DUPLICATE KEY UPDATE activo = 1')->execute([$usuario['email']]);
+            suscripcion_activar($email);
             $msj = 'Te suscribiste al boletín de novedades.';
         } else {
             if ($existente) {
-                $GLOBALS['pdo']->prepare('UPDATE suscripciones SET activo = 0 WHERE email = ?')->execute([$usuario['email']]);
+                suscripcion_alternar($email, false);
                 $msj = 'Te diste de baja del boletín.';
             } else {
                 $msj = 'No tenías una suscripción activa.';
@@ -81,9 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     responder(['ok' => false, 'mensaje' => 'Acción no válida.', 'tipo' => 'danger']);
 }
 
-$stmtB = $GLOBALS['pdo']->prepare('SELECT activo FROM suscripciones WHERE email = ? LIMIT 1');
-$stmtB->execute([$usuario['email']]);
-$suscrito = (bool)(($stmtB->fetch()['activo'] ?? false));
+$suscrito = suscripcion_activa((string)$usuario['email']);
 
 $tab = '';
 if (isset($_GET['tab']) && in_array($_GET['tab'], ['datos', 'fiscales', 'seguridad', 'preferencias'], true)) {

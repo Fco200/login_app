@@ -6,13 +6,7 @@ $titulo = 'Proyectos y plantillas — ' . SITE_NOMBRE;
 $cat = trim($_GET['cat'] ?? '');
 $catValida = in_array($cat, ['web', 'app', 'template', 'branding'], true) ? $cat : '';
 
-$sql = "SELECT * FROM proyectos WHERE activo = 1";
-$params = [];
-if ($catValida) { $sql .= " AND categoria = ?"; $params[] = $catValida; }
-$sql .= " ORDER BY destaque DESC, creado_en DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$proyectos = $stmt->fetchAll();
+$proyectos = pro_activos(0, $catValida);
 
 $categorias = [
     ['web', 'bi-browser-chrome', 'Sitios web'],

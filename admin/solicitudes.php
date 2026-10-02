@@ -8,69 +8,27 @@ require_once __DIR__ . '/includes/cabecera.php';
 /* ---------- Acciones ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
-    $id = (int)($_POST['id'] ?? 0);
+    $id = trim((string)($_POST['id'] ?? ''));
 
-    if (($accion === 'estado' || $accion === 'eliminar') && $id > 0) {
+    if (($accion === 'estado' || $accion === 'eliminar') && oid($id) !== null) {
         if ($accion === 'estado') {
             $estado = in_array($_POST['estado'] ?? '', ['nueva', 'en_proceso', 'completada', 'rechazada'], true)
                 ? $_POST['estado'] : 'nueva';
             $nota = trim((string)($_POST['nota'] ?? ''));
-            $estadoAnterior = $pdo->prepare('SELECT estado, usuario_id, tipo_servicio, nombre, email FROM solicitudes WHERE id = ?');
-            $estadoAnterior->execute([$id]);
-            $datosSol = $estadoAnterior->fetch();
 
-            $pdo->prepare('UPDATE solicitudes SET estado = ? WHERE id = ?')->execute([$estado, $id]);
-
-            registrar_historial($id, $estado, $nota !== '' ? $nota : 'Estado actualizado por el administrador.');
-
-            if ($datosSol && !empty($datosSol['usuario_id'])) {
-                $notas = [
-                    'en_proceso'  => 'Estamos trabajando en tu solicitud. Pronto tendrás novedades.',
-                    'completada'  => '¡Tu solicitud fue completada! Revisa los detalles en tu portal.',
-                    'rechazada'   => 'Tu solicitud no pudo ser procesada. Chatea con nosotros para más detalles.',
-                    'nueva'       => 'Recibimos tu solicitud y estamos por revisarla.',
-                ];
-                notificar(
-                    (int)$datosSol['usuario_id'],
-                    'estado',
-                    "Tu solicitud de {$datosSol['tipo_servicio']} ahora está: " . ucfirst(str_replace('_', ' ', $estado)),
-                    $nota !== '' ? $nota : ($notas[$estado] ?? ''),
-                    url_sitio('portal/solicitudes.php')
-                );
-
-                /* Aviso por correo al cliente */
-                if (!empty($datosSol['email'])) {
-                    $textoEstado = [
-                        'nueva'       => 'Recibimos tu solicitud y estamos por revisarla.',
-                        'en_proceso'  => 'Estamos trabajando en tu solicitud. Pronto tendrás novedades.',
-                        'completada'  => '¡Tu solicitud fue completada! Revisa los detalles en tu portal.',
-                        'rechazada'   => 'Tu solicitud no pudo ser procesada. Conversa con nosotros para más detalles.',
-                    ];
-                    enviar_correo(
-                        $datosSol['email'],
-                        'Actualización de tu solicitud — ' . SITE_NOMBRE,
-                        correo_plantilla(
-                            'Tu solicitud ahora está: ' . ucfirst(str_replace('_', ' ', $estado)),
-                            '<p>Hola <b>' . e($datosSol['nombre'] ?: '') . '</b>,</p>'
-                            . '<p><b>Servicio:</b> ' . e($datosSol['tipo_servicio'] ?: '—') . '</p>'
-                            . '<p>' . e($nota !== '' ? $nota : ($textoEstado[$estado] ?? '')) . '</p>'
-                            . '<p><a href="' . e(url_sitio('portal/solicitudes.php')) . '" style="background:#0a3d8f;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;">Ver mi solicitud</a></p>'
-                        )
-                    );
-                }
-            }
+            $cambio = sol_cambiar_estado($id, $estado, $nota);
 
             responder([
-                'ok'           => true,
-                'mensaje'      => 'Estado actualizado y cliente notificado.',
-                'tipo'         => 'success',
+                'ok'           => !empty($cambio['ok']),
+                'mensaje'      => $cambio['mensaje'] ?? 'No se pudo actualizar la solicitud.',
+                'tipo'         => !empty($cambio['ok']) ? 'success' : 'danger',
                 'accion'       => 'estado_solicitud',
                 'solicitud_id' => $id,
                 'estado'       => $estado,
                 'nota'         => $nota,
             ]);
         } else {
-            $pdo->prepare('DELETE FROM solicitudes WHERE id = ?')->execute([$id]);
+            sol_eliminar($id);
             flash('Solicitud eliminada.', 'warning');
             header('Location: solicitudes.php');
             exit;
@@ -83,24 +41,14 @@ $tipoFiltro = ($_GET['tipo'] ?? '') === 'empresa' || ($_GET['tipo'] ?? '') === '
 if (!in_array($filtro, ['nueva', 'en_proceso', 'completada', 'rechazada'], true)) {
     $filtro = '';
 }
-$condiciones = [];
-$params = [];
-if ($filtro !== '') {
-    $condiciones[] = 'estado = ?';
-    $params[] = $filtro;
-}
-if ($tipoFiltro !== '') {
-    $condiciones[] = 'tipo_solicitud = ?';
-    $params[] = $tipoFiltro;
-}
-$where = $condiciones ? 'WHERE ' . implode(' AND ', $condiciones) : '';
-$stmt = $pdo->prepare("SELECT * FROM solicitudes $where ORDER BY creado_en DESC");
-$stmt->execute($params);
-$solicitudes = $stmt->fetchAll();
+$solicitudes = sol_listar(['estado' => $filtro, 'tipo' => $tipoFiltro]);
+$historiales = sol_historiales(array_column($solicitudes, 'id'));
 
 $estados = ['nueva', 'en_proceso', 'completada', 'rechazada'];
-$nEmpresas = contar_registros("solicitudes", "tipo_solicitud = 'empresa'");
-$nIndividuales = contar_registros("solicitudes", "tipo_solicitud = 'individual'");
+$conteoPorTipo = sol_conteo_por_tipo();
+$nEmpresas = (int)($conteoPorTipo['empresa'] ?? 0);
+$nIndividuales = (int)($conteoPorTipo['individual'] ?? 0);
+$conteoEstados = sol_conteo_estados($tipoFiltro);
 ?>
 <div class="d-flex flex-wrap gap-2 mb-2">
     <a href="solicitudes.php" class="btn btn-sm <?= $filtro === '' && $tipoFiltro === '' ? 'btn-fv' : 'btn-outline-fv' ?>">Todas</a>
@@ -109,7 +57,7 @@ $nIndividuales = contar_registros("solicitudes", "tipo_solicitud = 'individual'"
 </div>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a href="solicitudes.php<?= $tipoFiltro ? '?tipo=' . urlencode($tipoFiltro) : '' ?>" class="btn btn-sm <?= $filtro === '' ? 'btn-fv' : 'btn-outline-fv' ?>">Todos los estados</a>
-    <?php foreach ($estados as $est): $n = contar_registros('solicitudes', "estado = '$est'" . ($tipoFiltro ? " AND tipo_solicitud = '$tipoFiltro'" : '')); ?>
+    <?php foreach ($estados as $est): $n = (int)($conteoEstados[$est] ?? 0); ?>
         <a href="solicitudes.php?estado=<?= $est ?><?= $tipoFiltro ? '&tipo=' . urlencode($tipoFiltro) : '' ?>" class="btn btn-sm <?= $filtro === $est ? 'btn-fv' : 'btn-outline-fv' ?>">
             <?= e(ucfirst(str_replace('_', ' ', $est))) ?> (<?= $n ?>)
         </a>
@@ -140,13 +88,13 @@ $nIndividuales = contar_registros("solicitudes", "tipo_solicitud = 'individual'"
                         <td class="small"><?= e($s['presupuesto'] ?: '—') ?></td>
                         <td class="small text-muted" style="max-width:260px;"><?= e(mb_strimwidth($s['mensaje'] ?? '', 0, 90, '…')) ?></td>
                         <td>
-                            <span class="badge badge-estado text-uppercase text-bg-<?= match($s['estado']) { 'nueva' => 'danger', 'en_proceso' => 'warning', 'completada' => 'success', 'rechazada' => 'secondary', default => 'light' } ?>" data-estado-sol="<?= (int)$s['id'] ?>">
+                            <span class="badge badge-estado text-uppercase text-bg-<?= match($s['estado']) { 'nueva' => 'danger', 'en_proceso' => 'warning', 'completada' => 'success', 'rechazada' => 'secondary', default => 'light' } ?>" data-estado-sol="<?= e($s['id']) ?>">
                                 <?= e(str_replace('_', ' ', $s['estado'])) ?>
                             </span>
                         </td>
-                        <td class="small text-muted"><?= e(date('d/m/Y H:i', strtotime($s['creado_en']))) ?></td>
+                        <td class="small text-muted"><?= e(fecha_php($s['creado_en'] ?? '', 'd/m/Y H:i')) ?></td>
                         <td class="text-end pe-3">
-                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#verSolicitud<?= (int)$s['id'] ?>" title="Ver detalles"><i class="bi bi-eye"></i></button>
+                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#verSolicitud<?= e($s['id']) ?>" title="Ver detalles"><i class="bi bi-eye"></i></button>
                             <a href="mailto:<?= e($s['email']) ?>?subject=Respuesta a tu solicitud de presupuesto con FV Digital" class="btn btn-sm btn-outline-secondary" title="Responder por correo"><i class="bi bi-envelope"></i></a>
                             <?php if ($s['telefono']): ?>
                                 <a href="https://wa.me/52<?= e(preg_replace('/\D/', '', $s['telefono'])) ?>" target="_blank" class="btn btn-sm btn-outline-success" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>
@@ -166,8 +114,8 @@ $estadoBadge = [
     'completada' => 'bg-success',
     'rechazada'  => 'bg-secondary',
 ];
-foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_historial WHERE solicitud_id = ? ORDER BY creado_en ASC'); $histSol->execute([(int)$s['id']]); $histSol = $histSol->fetchAll(); ?>
-<div class="modal fade" id="verSolicitud<?= (int)$s['id'] ?>" tabindex="-1" aria-hidden="true">
+foreach ($solicitudes as $s): $histSol = $historiales[(string)$s['id']] ?? []; ?>
+<div class="modal fade" id="verSolicitud<?= e($s['id']) ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -190,31 +138,31 @@ foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_
                         <small class="text-muted d-block">Mensaje</small>
                         <p class="mb-0" style="white-space:pre-line;"><?= e($s['mensaje']) ?></p>
                     </div>
-                    <div class="col-12"><small class="text-muted">Recibido: <?= e(date('d/m/Y H:i', strtotime($s['creado_en']))) ?></small></div>
+                    <div class="col-12"><small class="text-muted">Recibido: <?= e(fecha_php($s['creado_en'] ?? '', 'd/m/Y H:i')) ?></small></div>
                     <div class="col-12">
                         <small class="text-muted d-block mb-1">Historial / avances del proceso</small>
                         <?php if (!$histSol): ?>
                             <p class="small text-muted mb-0">Sin avances registrados todavía.</p>
                         <?php else: ?>
-                            <ul class="timeline portal-timeline small" id="historial-<?= (int)$s['id'] ?>">
+                            <ul class="timeline portal-timeline small" id="historial-<?= e($s['id']) ?>">
                                 <?php foreach ($histSol as $hito): ?>
                                     <li class="d-flex gap-2">
                                         <span class="badge <?= $estadoBadge[$hito['estado']] ?? 'bg-light text-dark' ?> text-uppercase"><?= e(str_replace('_', ' ', $hito['estado'])) ?></span>
                                         <div>
                                             <?php if ($hito['nota']): ?><span class="d-block text-muted"><?= e($hito['nota']) ?></span><?php endif; ?>
-                                            <small class="text-muted"><?= e(date('d/m/Y H:i', strtotime($hito['creado_en']))) ?></small>
+                                            <small class="text-muted"><?= e(fecha_php($hito['creado_en'] ?? '', 'd/m/Y H:i')) ?></small>
                                         </div>
                                     </li>
                                 <?php endforeach; ?>
                             </ul>
                         <?php endif; ?>
                     </div>
-                    <form method="POST" action="solicitudes.php" class="js-ajax border rounded p-2 mt-2" id="formEstado-<?= (int)$s['id'] ?>">
+                    <form method="POST" action="solicitudes.php" class="js-ajax border rounded p-2 mt-2" id="formEstado-<?= e($s['id']) ?>">
                         <?= campo_csrf() ?>
                         <input type="hidden" name="accion" value="estado">
-                        <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                        <input type="hidden" name="id" value="<?= e($s['id']) ?>">
                         <div class="d-flex flex-wrap gap-2 align-items-center">
-                            <select name="estado" id="selEstado-<?= (int)$s['id'] ?>" class="form-select form-select-sm" style="max-width:200px;">
+                            <select name="estado" id="selEstado-<?= e($s['id']) ?>" class="form-select form-select-sm" style="max-width:200px;">
                                 <?php foreach ($estados as $est): ?>
                                     <option value="<?= $est ?>" <?= $s['estado'] === $est ? 'selected' : '' ?>><?= e(ucfirst(str_replace('_', ' ', $est))) ?></option>
                                 <?php endforeach; ?>
@@ -229,7 +177,7 @@ foreach ($solicitudes as $s): $histSol = $pdo->prepare('SELECT * FROM solicitud_
                 <form method="POST" onsubmit="return confirm('¿Eliminar esta solicitud?')">
                     <?= campo_csrf() ?>
                     <input type="hidden" name="accion" value="eliminar">
-                    <input type="hidden" name="id" value="<?= (int)$s['id'] ?>">
+                    <input type="hidden" name="id" value="<?= e($s['id']) ?>">
                     <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Eliminar</button>
                 </form>
                 <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>

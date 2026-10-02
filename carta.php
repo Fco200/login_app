@@ -1,9 +1,7 @@
 ﻿<?php
 require_once __DIR__ . '/funciones.php';
 $slug = trim($_GET['slug'] ?? '');
-$stmt = $pdo->prepare('SELECT * FROM cartas WHERE slug = ? AND activo = 1 LIMIT 1');
-$stmt->execute([$slug]);
-$carta = $stmt->fetch();
+$carta = crud_por_slug('cartas', $slug, true);
 
 $titulo = ($carta ? $carta['titulo'] : 'Carta no encontrada') . ' — ' . SITE_NOMBRE;
 

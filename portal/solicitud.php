@@ -5,18 +5,16 @@ requiere_sesion();
 $seccionPortal = 'solicitud';
 $titulo = 'Nueva solicitud';
 
-$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => '', 'email' => ''];
-$servicios = $pdo->query("SELECT * FROM servicios WHERE activo = 1 ORDER BY destaque DESC, id ASC")->fetchAll();
+$usuario = sesion_actual() ?? ['id' => (string)($_SESSION['usuario_id'] ?? ''), 'nombre' => '', 'email' => ''];
+$servicios = srv_activos();
 $servicioSel = trim($_GET['servicio'] ?? '');
 $errores = [];
 
 /* ---------- Reutilizar una solicitud anterior ---------- */
 $pre = null;
-$reutilizar = (int)($_GET['reutilizar'] ?? 0);
-if ($reutilizar > 0) {
-    $rs = $pdo->prepare("SELECT * FROM solicitudes WHERE id = ? AND (usuario_id = ? OR LOWER(email) = LOWER(?))");
-    $rs->execute([$reutilizar, (int)$usuario['id'], $usuario['email']]);
-    $pre = $rs->fetch() ?: null;
+$reutilizar = trim((string)($_GET['reutilizar'] ?? ''));
+if (oid($reutilizar) !== null) {
+    $pre = sol_de_usuario($reutilizar, $usuario['id'], (string)$usuario['email']);
     if ($pre && ($pre['tipo_solicitud'] ?? '') === 'empresa') $pre = null;
 }
 $presupPre = '';
@@ -49,21 +47,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $descripcion = trim($_POST['descripcion']);
 
-    $stmt = $pdo->prepare('SELECT titulo FROM servicios WHERE slug = ? LIMIT 1');
-    $stmt->execute([$servicio]);
-    $servicioNombre = $stmt->fetchColumn() ?: $servicio;
+    $srv = srv_por_slug($servicio);
+    $servicioNombre = (string)($srv['titulo'] ?? $servicio);
 
     if ($nombre === '' || !$email || $telefono === '' || $servicio === '' || $descripcion === '') {
         responder(['ok' => false, 'mensaje' => 'Todos los campos son obligatorios. Verifica que el correo sea válido.', 'tipo' => 'danger']);
     }
 
-    $pdo->prepare("INSERT INTO solicitudes (usuario_id, nombre, email, telefono, tipo_servicio, presupuesto, mensaje) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        ->execute([(int)$usuario['id'], $nombre, $email, $telefono, $servicioNombre, $presupuesto ?: null, $descripcion]);
+    $nueva = sol_crear([
+        'usuario_id'    => $usuario['id'],
+        'nombre'        => $nombre,
+        'email'         => (string)$email,
+        'telefono'      => $telefono,
+        'tipo_servicio' => $servicioNombre,
+        'presupuesto'   => $presupuesto ?: null,
+        'mensaje'       => $descripcion,
+        'tipo_solicitud'=> 'individual',
+    ]);
 
-    $solicitudId = (int)$pdo->lastInsertId();
-    registrar_historial($solicitudId, 'nueva', 'Solicitud registrada desde el portal.');
-    notificar((int)$usuario['id'], 'exito', '¡Solicitud recibida!', "Registramos tu solicitud de $servicioNombre y empezamos a revisarla.", url_sitio('portal/solicitudes.php'));
-    notificar_admins('estado', 'Nueva solicitud de cotización', $nombre . ' solicitó una cotización de ' . $servicioNombre . '.', url_sitio('admin/solicitudes.php'));
+    if (empty($nueva['ok'])) {
+        responder(['ok' => false, 'mensaje' => $nueva['mensaje'] ?? 'No se pudo registrar la solicitud.', 'tipo' => 'danger']);
+    }
+
+    notificar($usuario['id'], 'exito', '¡Solicitud recibida!', "Registramos tu solicitud de $servicioNombre y empezamos a revisarla.", url_sitio('portal/solicitudes.php'));
 
     responder([
         'ok'      => true,
@@ -91,7 +97,7 @@ require_once __DIR__ . '/includes/cabecera.php';
 
                 <?php if ($pre): ?>
             <div class="alert alert-fv-light small py-2 mb-4 d-flex justify-content-between align-items-center gap-3">
-                <span><i class="bi bi-arrow-repeat me-1"></i>Copiamos los datos de tu solicitud <b><?= e($pre['tipo_servicio']) ?></b> del <?= e(date('d/m/Y', strtotime($pre['creado_en']))) ?>. Ajusta lo que quieras y vuelve a enviarla.</span>
+                <span><i class="bi bi-arrow-repeat me-1"></i>Copiamos los datos de tu solicitud <b><?= e($pre['tipo_servicio']) ?></b> del <?= e(fecha_php($pre['creado_en'] ?? '', 'd/m/Y')) ?>. Ajusta lo que quieras y vuelve a enviarla.</span>
                 <a href="nueva-solicitud" class="btn btn-sm btn-outline-fv flex-shrink-0"><i class="bi bi-x-lg"></i></a>
             </div>
         <?php endif; ?>

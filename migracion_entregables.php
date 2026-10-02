@@ -8,24 +8,15 @@ require_once __DIR__ . '/funciones.php';
 
 $errores = [];
 
-$sql = [
-"CREATE TABLE IF NOT EXISTS entregables (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  proyecto_id INT NOT NULL,
-  titulo VARCHAR(180) NOT NULL,
-  archivo VARCHAR(255) NOT NULL,
-  notas VARCHAR(255) NOT NULL DEFAULT '',
-  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (proyecto_id) REFERENCES proyectos_inicio(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-];
-
-foreach ($sql as $q) {
-    try {
-        $pdo->exec($q);
-    } catch (PDOException $e) {
-        $errores[] = $e->getMessage();
-    }
+/* Índices de la colección entregables (sustituye el CREATE TABLE). */
+try {
+    col('entregables')->createIndex(
+        ['proyecto_id' => 1, 'creado_en' => -1],
+        ['name' => 'ix_entregables_proyecto']
+    );
+    col('entregables')->createIndex(['creado_en' => -1], ['name' => 'ix_entregables_fecha']);
+} catch (\Throwable $e) {
+    $errores[] = $e->getMessage();
 }
 
 /* Carpeta de almacenamiento de entregables (protegida contra descarga directa) */
@@ -53,7 +44,7 @@ if (!file_exists($ht)) {
     <?php if (empty($errores)): ?>
         <div class="alert alert-success">Migración ejecutada correctamente.</div>
         <ul class="small text-muted">
-            <li>Tabla creada: entregables.</li>
+            <li>Índices creados en la colección: entregables.</li>
             <li>Carpeta protegida: assets/uploads/entregables/.</li>
         </ul>
     <?php else: ?>

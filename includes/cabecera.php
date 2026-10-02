@@ -81,7 +81,7 @@ $horario = dato_sitio('horario', SITE_HORARIO);
                                     </ul>
                                 </div>
                             </li>
-                            <?php $cartPublico = esta_logueado() ? contar_carrito((int)$_SESSION['usuario_id']) : 0; ?>
+                            <?php $cartPublico = esta_logueado() ? contar_carrito($_SESSION['usuario_id']) : 0; ?>
                             <li class="nav-item ms-lg-2 mt-2 mt-lg-0 position-relative">
                                 <a href="clientes/carrito" class="btn btn-outline-fv btn-sm" title="Mi carrito">
                                     <i class="bi bi-cart3"></i>

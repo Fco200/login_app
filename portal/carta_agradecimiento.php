@@ -7,7 +7,8 @@ require_once __DIR__ . '/../funciones.php';
 iniciar_sesion_segura();
 
 date_default_timezone_set('America/Hermosillo');
-$proyectoId = (int)($_GET['proyecto'] ?? 0);
+$proyectoId = trim((string)($_GET['proyecto'] ?? ''));
+$proyectoIdValido = ($proyectoId !== '' && oid($proyectoId) !== null);
 
 $esAdmin = esta_admin();
 if (!$esAdmin && !esta_logueado()) {
@@ -37,7 +38,7 @@ $back = $esAdmin && !esta_logueado() ? '../admin/procesos.php' : 'procesos';
         <a href="<?= e($back) ?>" class="btn btn-sm btn-outline-fv"><i class="bi bi-arrow-left me-1"></i>Volver a procesos</a>
         <span class="fw-bold d-none d-sm-inline"><?= e(SITE_NOMBRE) ?> · Carta</span>
         <div class="d-flex gap-2">
-            <a class="btn btn-sm btn-fv" href="carta_pdf.php?proyecto=<?= (int)$proyectoId ?>"><i class="bi bi-file-earmark-pdf me-1"></i>Descargar PDF</a>
+            <a class="btn btn-sm btn-fv" href="carta_pdf.php?proyecto=<?= e(urlencode($proyectoId)) ?>"><i class="bi bi-file-earmark-pdf me-1"></i>Descargar PDF</a>
             <button class="btn btn-sm btn-outline-fv" onclick="window.print()"><i class="bi bi-printer me-1"></i>Imprimir</button>
         </div>
     </div>
@@ -53,7 +54,7 @@ $back = $esAdmin && !esta_logueado() ? '../admin/procesos.php' : 'procesos';
             <a href="<?= e($back) ?>" class="btn btn-outline-fv btn-sm"><i class="bi bi-arrow-left me-1"></i>Mis procesos</a>
         </div>
 
-        <?php if ($proyectoId <= 0): ?>
+        <?php if (!$proyectoIdValido): ?>
             <div class="card portal-card border-0 shadow-sm p-5 text-center">
                 <i class="bi bi-envelope-heart d-block fs-1 text-primary mb-3"></i>
                 <h5>Falta el proyecto</h5>
@@ -63,7 +64,7 @@ $back = $esAdmin && !esta_logueado() ? '../admin/procesos.php' : 'procesos';
             <div class="card portal-card border-0 shadow-sm">
                 <div class="card-body">
                     <div class="d-flex flex-wrap gap-2 mb-3 no-print">
-                        <a class="btn btn-fv" href="carta_pdf.php?proyecto=<?= (int)$proyectoId ?>"><i class="bi bi-file-earmark-pdf me-1"></i>Descargar carta (PDF)</a>
+                        <a class="btn btn-fv" href="carta_pdf.php?proyecto=<?= e(urlencode($proyectoId)) ?>"><i class="bi bi-file-earmark-pdf me-1"></i>Descargar carta (PDF)</a>
                         <button class="btn btn-outline-fv" onclick="window.print()"><i class="bi bi-printer me-1"></i>Imprimir</button>
                     </div>
 
@@ -95,7 +96,7 @@ function fmtMXN(n) {
 var DATOS = null;
 
 function cargarCarta() {
-    if (PET.proyecto_id <= 0) return;
+    if (!PET.proyecto_id) return;
     fetch('carta_api.php?proyecto_id=' + PET.proyecto_id, { headers: { 'Accept': 'application/json' } })
         .then(function (r) { return r.json(); })
         .then(function (d) {

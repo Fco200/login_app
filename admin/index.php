@@ -12,50 +12,45 @@ $estadisticas = [
     'cartas'        => contar_registros('cartas'),
     'testimonios'   => contar_registros('testimonios'),
     'solicitudes'   => contar_registros('solicitudes'),
-    'solicitudes_nuevas' => contar_registros('solicitudes', "estado = 'nueva'"),
+    'solicitudes_nuevas' => contar_registros('solicitudes', ['estado' => 'nueva']),
     'mensajes'      => contar_registros('mensajes_contacto'),
-    'mensajes_no_leidos' => contar_registros('mensajes_contacto', 'leido = 0'),
+    'mensajes_no_leidos' => contacto_no_leidos(),
     'portal_mensajes' => contar_registros('mensajes_portal'),
-    'portal_sin_leer' => (int)$pdo->query("SELECT COUNT(*) FROM mensajes_portal WHERE remitente = 'cliente' AND leido = 0")->fetchColumn(),
+    'portal_sin_leer' => mp_no_leidos_clientes(),
     'suscripciones' => contar_registros('suscripciones'),
     'usuarios'      => contar_registros('usuarios'),
     'vehiculos'     => contar_registros('vehiculos'),
 ];
 
-$visitas = (int)$pdo->query('SELECT COALESCE(SUM(visitas),0) FROM publicaciones')->fetchColumn();
+$visitas = pub_visitas_totales();
 
-$recientesSolicitudes = $pdo->query("SELECT * FROM solicitudes ORDER BY creado_en DESC LIMIT 5")->fetchAll();
-$recientesMensajes = $pdo->query("SELECT * FROM mensajes_contacto ORDER BY creado_en DESC LIMIT 5")->fetchAll();
-$recientesPortal = $pdo->query("SELECT m.*, u.nombre AS cliente FROM mensajes_portal m JOIN usuarios u ON u.id = m.usuario_id ORDER BY m.creado_en DESC LIMIT 5")->fetchAll();
-$pagosPendientes = $pdo->query("SELECT p.*, mp.nombre AS metodo_nombre, u.nombre AS cliente_nombre FROM pagos p LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id LEFT JOIN usuarios u ON p.usuario_id = u.id WHERE p.estado = 'pendiente' ORDER BY p.creado_en DESC LIMIT 8")->fetchAll();
+$recientesSolicitudes = sol_recientes(5);
+$recientesMensajes = contacto_listar(false, 5);
+$recientesPortal = array_map(
+    static fn($m) => ['mensaje' => $m['mensaje'] ?? '', 'remitente' => $m['remitente'] ?? '', 'creado_en' => $m['creado_en'] ?? '', 'cliente' => $m['nombre'] ?? 'Cliente'],
+    mp_conversaciones_recientes(5)
+);
+$pagosPendientes = pag_pendientes_aprobacion(8);
 
 /* ---------- Métricas financieras ---------- */
-$metricas = [
-    'ingresos_total'    => (float)$pdo->query("SELECT COALESCE(SUM(monto),0) FROM pagos WHERE estado='aprobado'")->fetchColumn(),
-    'ingresos_mes'      => (float)$pdo->query("SELECT COALESCE(SUM(monto),0) FROM pagos WHERE estado='aprobado' AND DATE_FORMAT(creado_en,'%Y-%m') = DATE_FORMAT(NOW(),'%Y-%m')")->fetchColumn(),
-    'pendiente_monto'   => (float)$pdo->query("SELECT COALESCE(SUM(monto),0) FROM pagos WHERE estado='pendiente'")->fetchColumn(),
-    'ticket_promedio'   => (float)$pdo->query("SELECT COALESCE(AVG(monto),0) FROM pagos WHERE estado='aprobado'")->fetchColumn(),
-    'clientes_activos'  => (int)$pdo->query("SELECT COUNT(*) FROM usuarios WHERE rol='cliente' AND activo=1")->fetchColumn(),
-    'solicitudes_mes'   => (int)$pdo->query("SELECT COUNT(*) FROM solicitudes WHERE DATE_FORMAT(creado_en,'%Y-%m') = DATE_FORMAT(NOW(),'%Y-%m')")->fetchColumn(),
-    'pagos_aprobados'   => (int)$pdo->query("SELECT COUNT(*) FROM pagos WHERE estado='aprobado'")->fetchColumn(),
+$finanzas = pagos_metricas();
+$conteoRoles = usr_conteo_por_rol();
+$metricas = $finanzas + [
+    'ingresos_mes'     => pagos_ingresos_por_mes(1)[0]['total'] ?? 0.0,
+    'clientes_activos' => $conteoRoles['cliente:1'] ?? 0,
+    'solicitudes_mes'  => sol_creadas_en_mes(),
 ];
 
 /* Ingresos mensuales: últimos 6 meses */
 $etiquetasMeses = [];
 $montosMeses = [];
-for ($i = 5; $i >= 0; $i--) {
-    $mes = date('Y-m', strtotime("-{$i} months"));
-    $etiquetasMeses[] = date('M Y', strtotime($mes . '-01'));
-    $stmtMes = $pdo->prepare("SELECT COALESCE(SUM(monto),0) FROM pagos WHERE estado='aprobado' AND DATE_FORMAT(creado_en,'%Y-%m') = ?");
-    $stmtMes->execute([$mes]);
-    $montosMeses[] = (float)$stmtMes->fetchColumn();
+foreach (pagos_ingresos_por_mes(6) as $fila) {
+    $etiquetasMeses[] = date('M Y', strtotime($fila['mes'] . '-01'));
+    $montosMeses[] = (float)$fila['total'];
 }
 
 /* Clientes con más facturación */
-$topClientes = $pdo->query("SELECT u.id, u.nombre, u.email, COALESCE(SUM(p.monto),0) AS total, COUNT(p.id) AS n
-                            FROM pagos p JOIN usuarios u ON u.id = p.usuario_id
-                            WHERE p.estado='aprobado'
-                            GROUP BY p.usuario_id ORDER BY total DESC LIMIT 5")->fetchAll();
+$topClientes = pagos_top_clientes(5);
 ?>
 
 <div class="row g-3 mb-4">

@@ -6,8 +6,8 @@ require_once __DIR__ . '/../lib/pdf.php';
 
 iniciar_sesion_segura();
 
-$proyectoId = (int)($_GET['proyecto'] ?? ($_GET['proyecto_id'] ?? 0));
-if ($proyectoId <= 0) {
+$proyectoId = trim((string)($_GET['proyecto'] ?? ($_GET['proyecto_id'] ?? '')));
+if (oid($proyectoId) === null) {
     http_response_code(400);
     exit('Proyecto inválido.');
 }
@@ -15,33 +15,25 @@ if ($proyectoId <= 0) {
 $esAdmin = esta_admin();
 $usuario = sesion_actual();
 
-$st = $GLOBALS['pdo']->prepare('SELECT pi.*, s.tipo_servicio, s.presupuesto, s.creado_en AS solicitud_creada,
-                                       u.nombre AS cliente_nombre, u.email AS cliente_email
-                                FROM proyectos_inicio pi
-                                LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
-                                LEFT JOIN usuarios u ON pi.usuario_id = u.id
-                                WHERE pi.id = ?');
-$st->execute([$proyectoId]);
-$p = $st->fetch();
-if (!$p) {
+$p = proy_por_id($proyectoId);
+if ($p === null) {
     http_response_code(404);
     exit('Proyecto no encontrado.');
 }
-if (!$esAdmin && (!$usuario || (int)$usuario['id'] !== (int)$p['usuario_id'])) {
+$p = proy_con_cliente($p);
+if (!$esAdmin && (!$usuario || (string)($usuario['id'] ?? '') !== (string)($p['usuario_id'] ?? ''))) {
     http_response_code(403);
     exit('No autorizado.');
 }
-if ($p['estado'] !== 'completado') {
+if ((string)($p['estado'] ?? '') !== 'completado') {
     http_response_code(409);
     exit('La carta de agradecimiento está disponible cuando el proyecto se entrega (Completado).');
 }
 
 $entregables = [];
-$stE = $GLOBALS['pdo']->prepare('SELECT titulo, notas FROM entregables WHERE proyecto_id = ? ORDER BY creado_en ASC');
-$stE->execute([$proyectoId]);
-foreach ($stE as $en) {
+foreach (ent_por_proyectos([$proyectoId]) as $en) {
     $entregables[] = [
-        'titulo' => (string)$en['titulo'],
+        'titulo' => (string)($en['titulo'] ?? ''),
         'notas'  => (string)($en['notas'] ?? ''),
     ];
 }
@@ -50,14 +42,14 @@ $e = datos_emisor();
 $pagos = proyecto_pagos_aprobados_detalle($proyectoId);
 $subtotalPagos = round(array_sum(array_map(fn($pp) => (float)$pp['monto'], $pagos)), 2);
 
-$folio = 'FV-' . str_pad((string)$p['id'], 4, '0', STR_PAD_LEFT);
+$folio = 'FV-' . str_pad(counter_partes($p['id']), 4, '0', STR_PAD_LEFT);
 $servicio = (string)($p['tipo_servicio'] ?? '');
 $descripcion = (string)($p['descripcion_proyecto'] ?? '');
 $cliente = (string)($p['cliente_nombre'] ?? 'Cliente');
 $emailCliente = (string)($p['cliente_email'] ?? '');
-$iniciado = date('d/m/Y', strtotime($p['creado_en']));
-$entregado = date('d/m/Y');
-$montoIncluido = max(0.0, (float)$p['total_proyecto']);
+$iniciado = fecha_php($p['creado_en'] ?? '', 'd/m/Y');
+$entregado = fecha_php($p['actualizado_en'] ?? null, 'd/m/Y');
+$montoIncluido = max(0.0, (float)($p['total_proyecto'] ?? 0));
 
 $textoAgradecimiento =
     'Todas las personas que formamos FV Digital queremos agradecerte de corazón el habernos '

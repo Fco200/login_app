@@ -5,7 +5,7 @@ require_once __DIR__ . '/funciones.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST['empresa'])) {
     $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
     if ($email) {
-        $pdo->prepare('INSERT INTO suscripciones (email) VALUES (?) ON DUPLICATE KEY UPDATE activo = 1')->execute([$email]);
+        suscripcion_activar($email);
         if (es_ajax()) {
             responder([
                 'ok'      => true,
