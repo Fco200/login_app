@@ -15,10 +15,12 @@ function generar_captcha(): array {
     return ['a' => $a, 'b' => $b];
 }
 if (!isset($_SESSION['recupera_captcha'])) {
-    generar_captcha();
+    $captchaSesion = generar_captcha();
+} else {
+    // Regeneramos números para mostrar pero mantenemos la suma? Mejor regenerar limpio
+    $captchaSesion = generar_captcha();
 }
-$captcha = ['a' => random_int(3, 12), 'b' => random_int(2, 9)];
-$_SESSION['recupera_captcha'] = $captcha['a'] + $captcha['b'];
+$captcha = $captchaSesion;
 
 $error = '';
 $ok = false;
