@@ -1,5 +1,7 @@
 FROM php:8.2-apache
 
+# Activar el módulo rewrite de Apache para que el .htaccess funcione
+RUN a2enmod rewrite
 # Instalar dependencias del sistema y la extensión de MongoDB
 RUN apt-get update && apt-get install -y \
     libssl-dev \
