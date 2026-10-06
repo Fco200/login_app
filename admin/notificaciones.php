@@ -5,24 +5,27 @@ $seccionAdmin = 'notificaciones.php';
 
 require_once __DIR__ . '/includes/cabecera.php';
 
-$miId = (string)($_SESSION['admin_id'] ?? '');
+$miId = (int)$_SESSION['admin_id'];
 
 /* Marcar una notificación como leída */
-$marcar = trim((string)($_GET['marcar'] ?? ''));
-if ($marcar !== '' && oid($marcar) !== null) {
-    notif_marcar_leida($miId, $marcar);
+if (isset($_GET['marcar']) && (int)$_GET['marcar'] > 0) {
+    $pdo->prepare('UPDATE notificaciones SET leida = 1 WHERE id = ? AND usuario_id = ?')
+        ->execute([(int)$_GET['marcar'], $miId]);
     header('Location: notificaciones.php');
     exit;
 }
 
 /* Marcar todas como leídas */
 if (isset($_GET['todas'])) {
-    notif_marcar_leidas($miId);
+    $pdo->prepare('UPDATE notificaciones SET leida = 1 WHERE usuario_id = ?')
+        ->execute([$miId]);
     header('Location: notificaciones.php');
     exit;
 }
 
-$notificaciones = notif_de_usuario($miId, 80);
+$stmt = $pdo->prepare('SELECT * FROM notificaciones WHERE usuario_id = ? ORDER BY creado_en DESC, id DESC LIMIT 80');
+$stmt->execute([$miId]);
+$notificaciones = $stmt->fetchAll();
 
 $iconos = [
     'exito'            => ['check-circle', 'text-success'],
@@ -55,7 +58,7 @@ $iconos = [
 <?php else: ?>
     <ul class="list-unstyled portal-notif portal-notif-grande mb-0">
         <?php foreach ($notificaciones as $n): [$ico, $color] = $iconos[$n['tipo']] ?? ['info-circle', 'text-info']; ?>
-            <li class="card border-0 shadow-sm mb-2 <?= empty($n['leida']) ? 'no-leida' : '' ?>">
+            <li class="card border-0 shadow-sm mb-2 <?= (int)$n['leida'] ? '' : 'no-leida' ?>">
                 <div class="d-flex align-items-start gap-3 w-100 p-3">
                     <div class="flex-shrink-0"><i class="bi bi-<?= $ico ?> fs-4 <?= $color ?>"></i></div>
                     <div class="flex-grow-1">
@@ -68,7 +71,7 @@ $iconos = [
                             <a href="<?= e($n['enlace']) ?>" class="btn btn-sm btn-outline-fv"><i class="bi bi-box-arrow-up-right"></i></a>
                         <?php endif; ?>
                         <?php if (!$n['leida']): ?>
-                            <a href="notificaciones.php?marcar=<?= e(urlencode((string)$n['id'])) ?>" class="btn btn-sm btn-outline-success ms-1" title="Marcar como leída"><i class="bi bi-check-lg"></i></a>
+                            <a href="notificaciones.php?marcar=<?= (int)$n['id'] ?>" class="btn btn-sm btn-outline-success ms-1" title="Marcar como leída"><i class="bi bi-check-lg"></i></a>
                         <?php endif; ?>
                     </div>
                 </div>

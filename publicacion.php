@@ -1,10 +1,9 @@
 ﻿<?php
 require_once __DIR__ . '/funciones.php';
 $slug = trim($_GET['slug'] ?? '');
-$pub = pub_por_slug($slug);
-if ($pub !== null) {
-    pub_visitas($pub['id']);
-}
+$stmt = $pdo->prepare("SELECT * FROM publicaciones WHERE slug = ? AND activo = 1 LIMIT 1");
+$stmt->execute([$slug]);
+$pub = $stmt->fetch();
 
 $titulo = ($pub ? $pub['titulo'] : 'Publicación no encontrada') . ' — ' . SITE_NOMBRE;
 

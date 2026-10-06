@@ -1,13 +1,5 @@
 {
-    "description": "FV DIGITAL - portal web, portal de clientes y panel administrativo sobre MongoDB Atlas (db FVDIGITALHMO).",
-    "type": "project",
-    "keywords": ["php", "mongodb", "atlas", "portal", "facturacion"],
-    "license": "MIT",
     "require": {
         "mongodb/mongodb": "*"
-    },
-    "scripts": {
-        "lint": "php -l funciones.php && php -l conexion.php && php -l instalador.php",
-        "test": "php pruebas/prueba_flujo_completo.php"
     }
 }

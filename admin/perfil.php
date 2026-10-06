@@ -5,8 +5,10 @@ $seccionAdmin = 'perfil.php';
 
 require_once __DIR__ . '/includes/cabecera.php';
 
-$miId = (string)($_SESSION['admin_id'] ?? $_SESSION['usuario_id'] ?? '');
-$yo = usr_por_id($miId) ?? [];
+$miId = (int)($_SESSION['admin_id'] ?? $_SESSION['usuario_id'] ?? 0);
+$stmt = $pdo->prepare('SELECT * FROM usuarios WHERE id = ?');
+$stmt->execute([$miId]);
+$yo = $stmt->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $nombre = trim($_POST['nombre']);
@@ -16,18 +18,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     if ($nombre === '') {
         flash('El nombre no puede estar vacío.', 'danger');
     } elseif ($passwordActual !== '' || $passwordNueva !== '') {
-        if (!$yo || !usr_verificar_password($yo, $passwordActual)) {
+        if (!password_verify($passwordActual, $yo['password'])) {
             flash('La contraseña actual no es correcta.', 'danger');
         } elseif (strlen($passwordNueva) < 6) {
             flash('La nueva contraseña debe tener mínimo 6 caracteres.', 'danger');
         } else {
-            usr_actualizar($miId, ['nombre' => $nombre, 'password' => $passwordNueva]);
+            $pdo->prepare('UPDATE usuarios SET nombre = ?, password = ? WHERE id = ?')
+                ->execute([$nombre, password_hash($passwordNueva, PASSWORD_BCRYPT), $miId]);
             $_SESSION['admin_nombre'] = $nombre;
             $_SESSION['nombre'] = $nombre;
             flash('Datos actualizados correctamente.');
         }
     } else {
-        usr_actualizar($miId, ['nombre' => $nombre]);
+        $pdo->prepare('UPDATE usuarios SET nombre = ? WHERE id = ?')->execute([$nombre, $miId]);
         $_SESSION['admin_nombre'] = $nombre;
         $_SESSION['nombre'] = $nombre;
         flash('Nombre actualizado.');

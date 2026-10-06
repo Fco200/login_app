@@ -55,17 +55,17 @@ $enlaces = [
             <?php foreach ($enlaces as $arch => $info): ?>
                 <a class="nav-link <?= $archivo === $arch ? 'active' : '' ?>" href="<?= $arch ?>">
                     <i class="bi <?= $info[1] ?>"></i><?= $info[0] ?>
-                    <?php if ($arch === 'solicitudes.php'): $n = contar_registros('solicitudes', ['estado' => 'nueva']); ?>
+                    <?php if ($arch === 'solicitudes.php'): $n = (int)contar_registros('solicitudes', "estado = 'nueva'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
-                    <?php elseif ($arch === 'pagos.php'): $n = contar_registros('pagos', ['estado' => 'pendiente']); ?>
+                    <?php elseif ($arch === 'pagos.php'): $n = (int)contar_registros('pagos', "estado = 'pendiente'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-warning ms-1"><?= $n ?></span><?php endif; ?>
-                    <?php elseif ($arch === 'procesos.php'): $n = contar_registros('proyectos_inicio', ['estado' => 'en_desarrollo']); ?>
+                    <?php elseif ($arch === 'procesos.php'): $n = (int)contar_registros('proyectos_inicio', "estado = 'en_desarrollo'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-primary ms-1"><?= $n ?></span><?php endif; ?>
-                    <?php elseif ($arch === 'mensajes.php'): $n = contacto_no_leidos(); ?>
+                    <?php elseif ($arch === 'mensajes.php'): $n = (int)contar_registros('mensajes_contacto', 'leido = 0'); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-warning ms-1"><?= $n ?></span><?php endif; ?>
-                    <?php elseif ($arch === 'mensajes_portal.php'): $n = mp_no_leidos_clientes(); ?>
+                    <?php elseif ($arch === 'mensajes_portal.php'): $n = (int)$pdo->query("SELECT COUNT(*) FROM mensajes_portal WHERE remitente = 'cliente' AND leido = 0")->fetchColumn(); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
-                    <?php elseif ($arch === 'soporte.php'): $n = sop_no_leidos(); ?>
+                    <?php elseif ($arch === 'soporte.php'): $n = (int)contar_registros('soporte', "estado = 'nuevo'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
                     <?php endif; ?>
                 </a>
@@ -88,11 +88,11 @@ $enlaces = [
             <a class="nav-link <?= $archivo === 'notificaciones.php' ? 'active' : '' ?>" href="notificaciones.php">
                 <i class="bi bi-bell"></i>Notificaciones
                 <?php
-                $miId = (string)($_SESSION['admin_id'] ?? '');
+                $miId = (int)($_SESSION['admin_id'] ?? 0);
                 $nNotif = 0;
-                if ($miId !== '' && oid($miId) !== null) {
+                if ($miId > 0) {
                     try {
-                        $nNotif = notif_no_leidas($miId);
+                        $nNotif = (int)$pdo->query('SELECT COUNT(*) FROM notificaciones WHERE usuario_id = ' . $miId . ' AND leida = 0')->fetchColumn();
                     } catch (Throwable $e) { $nNotif = 0; }
                 }
                 ?>

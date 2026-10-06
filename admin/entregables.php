@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $titulo = 'Entregables';
 $subtitulo = 'Archivos de entrega para los proyectos de clientes';
 $seccionAdmin = 'entregables.php';
@@ -10,13 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'subir_entregable') {
-        $proyectoId = trim((string)($_POST['proyecto_id'] ?? ''));
+        $proyectoId = (int)($_POST['proyecto_id'] ?? 0);
         $tituloE = trim($_POST['titulo'] ?? '');
-        if (oid($proyectoId) === null) {
-            responder(['ok' => false, 'mensaje' => 'Proyecto invÃ¡lido.', 'tipo' => 'danger']);
+        if ($proyectoId <= 0) {
+            responder(['ok' => false, 'mensaje' => 'Proyecto inválido.', 'tipo' => 'danger']);
         }
         if ($tituloE === '') {
-            responder(['ok' => false, 'mensaje' => 'Escribe un tÃ­tulo para el entregable.', 'tipo' => 'warning']);
+            responder(['ok' => false, 'mensaje' => 'Escribe un título para el entregable.', 'tipo' => 'warning']);
         }
         if (empty($_FILES['archivo']['name']) || $_FILES['archivo']['error'] !== UPLOAD_ERR_OK) {
             responder(['ok' => false, 'mensaje' => 'Selecciona el archivo a subir.', 'tipo' => 'warning']);
@@ -27,24 +27,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             responder(['ok' => false, 'mensaje' => 'Error al subir: ' . $res['error'], 'tipo' => 'danger']);
         }
         $notasE = trim($_POST['notas'] ?? '');
-        $nuevo = ent_crear($proyectoId, [
-            'titulo' => $tituloE,
-            'archivo'=> $res['archivo'],
-            'original' => $res['original'] ?? null,
-            'notas'  => $notasE,
-        ]);
-        if (empty($nuevo['ok'])) {
-            responder(['ok' => false, 'mensaje' => $nuevo['mensaje'] ?? 'No se pudo registrar el entregable.', 'tipo' => 'danger']);
-        }
-        $idE = $nuevo['id'];
+        $pdo->prepare('INSERT INTO entregables (proyecto_id, titulo, archivo, notas) VALUES (?,?,?,?)')
+            ->execute([$proyectoId, $tituloE, $res['archivo'], $notasE]);
+        $idE = (int)$pdo->lastInsertId();
 
-        /* Notificar al cliente dueÃ±o del proyecto */
-        $projN = proy_por_id($proyectoId);
-        if ($projN && !empty($projN['usuario_id'])) {
-            $estadoN = (string)($projN['estado'] ?? '');
+        /* Notificar al cliente dueño del proyecto */
+        $stmtN = $pdo->prepare('SELECT usuario_id, estado FROM proyectos_inicio WHERE id = ?');
+        $stmtN->execute([$proyectoId]);
+        $projN = $stmtN->fetch();
+        if ($projN) {
+            $estadoN = $projN['estado'];
             if ($estadoN === 'completado') {
                 notificar(
-                    $projN['usuario_id'],
+                    (int)$projN['usuario_id'],
                     'entregable',
                     'Nuevo entregable disponible',
                     'Subimos "' . $tituloE . '" para tu proyecto. Ya puedes descargarlo desde tus procesos.',
@@ -52,10 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                 );
             } else {
                 notificar(
-                    $projN['usuario_id'],
+                    (int)$projN['usuario_id'],
                     'info',
                     'Avance de tu proyecto',
-                    'El equipo subiÃ³ "' . $tituloE . '" como entregable de avance.',
+                    'El equipo subió "' . $tituloE . '" como entregable de avance.',
                     url_sitio('portal/procesos.php')
                 );
             }
@@ -75,11 +70,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar_entregable' && isset($_POST['id'])) {
-        $idE = (string)$_POST['id'];
-        $ent = ent_por_id($idE);
+        $idE = (int)$_POST['id'];
+        $stmtE = $pdo->prepare('SELECT archivo FROM entregables WHERE id = ?');
+        $stmtE->execute([$idE]);
+        $ent = $stmtE->fetch();
         if ($ent) {
-            eliminar_archivo($ent['archivo'] ?? null);
-            ent_eliminar($idE);
+            eliminar_archivo($ent['archivo']);
+            $pdo->prepare('DELETE FROM entregables WHERE id = ?')->execute([$idE]);
         }
         responder(['ok' => true, 'mensaje' => 'Entregable eliminado.', 'accion' => 'entregable_eliminado', 'entregable_id' => $idE, 'tipo' => 'warning']);
     }
@@ -91,10 +88,26 @@ if (!in_array($filtroEstado, ['documentacion', 'anticipo_pendiente', 'en_desarro
     $filtroEstado = '';
 }
 
-$proyectos = proy_panel_procesos($filtroEstado !== '' ? [$filtroEstado] : []);
-$entregablesPorProyecto = $proyectos
-    ? ent_por_proyectos(array_map(static fn($p) => $p['id'], $proyectos))
-    : [];
+$sqlProy = 'SELECT pi.*, s.tipo_servicio, u.nombre AS cliente_nombre, u.email AS cliente_email
+            FROM proyectos_inicio pi
+            LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
+            LEFT JOIN usuarios u ON pi.usuario_id = u.id';
+if ($filtroEstado !== '') {
+    $sqlProy .= ' WHERE pi.estado = ?';
+}
+$sqlProy .= ' ORDER BY pi.creado_en DESC';
+$stmtProy = $pdo->prepare($sqlProy);
+$stmtProy->execute($filtroEstado !== '' ? [$filtroEstado] : []);
+$proyectos = $stmtProy->fetchAll();
+
+$entregablesPorProyecto = [];
+if ($proyectos) {
+    $ids = array_map(fn($p) => (int)$p['id'], $proyectos);
+    $in = implode(',', $ids);
+    foreach ($pdo->query("SELECT * FROM entregables WHERE proyecto_id IN ($in) ORDER BY creado_en DESC") as $ent) {
+        $entregablesPorProyecto[(int)$ent['proyecto_id']][] = $ent;
+    }
+}
 
 $estadoProy = [
     'documentacion'      => 'text-bg-info',
@@ -110,7 +123,7 @@ $estadoProy = [
             <label class="form-label small fw-semibold mb-1">Estado del proyecto</label>
             <select name="estado" class="form-select form-select-sm">
                 <option value="">Todos</option>
-                <option value="documentacion" <?= $filtroEstado === 'documentacion' ? 'selected' : '' ?>>DocumentaciÃ³n</option>
+                <option value="documentacion" <?= $filtroEstado === 'documentacion' ? 'selected' : '' ?>>Documentación</option>
                 <option value="anticipo_pendiente" <?= $filtroEstado === 'anticipo_pendiente' ? 'selected' : '' ?>>Anticipo pendiente</option>
                 <option value="en_desarrollo" <?= $filtroEstado === 'en_desarrollo' ? 'selected' : '' ?>>En desarrollo</option>
                 <option value="liquidado" <?= $filtroEstado === 'liquidado' ? 'selected' : '' ?>>Liquidado / Finalizado</option>
@@ -130,15 +143,15 @@ $estadoProy = [
     </div>
 <?php else: ?>
     <?php foreach ($proyectos as $proy):
-        $entregas = $entregablesPorProyecto[(string)$proy['id']] ?? [];
+        $entregas = $entregablesPorProyecto[(int)$proy['id']] ?? [];
         $bgEst = $estadoProy[$proy['estado']] ?? 'text-bg-light';
         ?>
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div>
-                    <b><i class="bi bi-bezier2 me-1 text-primary"></i><?= e($proy['tipo_servicio'] ?: 'Proyecto #' . e((string)$proy['id'])) ?></b>
+                    <b><i class="bi bi-bezier2 me-1 text-primary"></i><?= e($proy['tipo_servicio'] ?: 'Proyecto #' . (int)$proy['id']) ?></b>
                     <small class="text-muted d-block">
-                        <?= e($proy['cliente_nombre'] ?: 'Cliente #' . e((string)$proy['usuario_id'])) ?> Â·
+                        <?= e($proy['cliente_nombre'] ?: 'Cliente #' . (int)$proy['usuario_id']) ?> ·
                         <a href="<?= e($proy['cliente_email'] ? 'mailto:' . $proy['cliente_email'] : '') ?>"><?= e($proy['cliente_email'] ?: '') ?></a>
                     </small>
                 </div>
@@ -154,14 +167,14 @@ $estadoProy = [
                         <form method="POST" enctype="multipart/form-data" class="js-ajax">
                             <?= campo_csrf() ?>
                             <input type="hidden" name="accion" value="subir_entregable">
-                            <input type="hidden" name="proyecto_id" value="<?= e((string)$proy['id']) ?>">
+                            <input type="hidden" name="proyecto_id" value="<?= (int)$proy['id'] ?>">
                             <div class="row g-2">
                                 <div class="col-12">
-                                    <input type="text" name="titulo" class="form-control" placeholder="TÃ­tulo (p. ej. 'Web final - archivo ZIP')" required>
+                                    <input type="text" name="titulo" class="form-control" placeholder="Título (p. ej. 'Web final - archivo ZIP')" required>
                                 </div>
                                 <div class="col-12">
                                     <input type="file" name="archivo" class="form-control" required>
-                                    <small class="text-muted">PDF, ZIP, RAR, 7z, Office, imÃ¡genesâ€¦ hasta 15 MB.</small>
+                                    <small class="text-muted">PDF, ZIP, RAR, 7z, Office, imágenes… hasta 15 MB.</small>
                                 </div>
                                 <div class="col-12">
                                     <input type="text" name="notas" class="form-control" placeholder="Nota breve (opcional)">
@@ -174,19 +187,19 @@ $estadoProy = [
                     </div>
                     <div class="col-lg-6">
                         <h6 class="small fw-bold text-uppercase text-muted mb-3"><i class="bi bi-archive me-1"></i>Entregables del proyecto</h6>
-                        <div id="entregablesLista-<?= e((string)$proy['id']) ?>">
+                        <div id="entregablesLista-<?= (int)$proy['id'] ?>">
                             <?php if (!$entregas): ?>
                                 <p class="text-muted small mb-0">Sin entregables por ahora.</p>
                             <?php else: foreach ($entregas as $ent): ?>
-                                <div class="d-flex justify-content-between align-items-center gap-2 border rounded p-2 mb-2" id="entregable-<?= e((string)$ent['id']) ?>">
+                                <div class="d-flex justify-content-between align-items-center gap-2 border rounded p-2 mb-2" id="entregable-<?= (int)$ent['id'] ?>">
                                     <div class="min-w-0">
                                         <b class="d-block text-truncate" style="max-width:260px;"><i class="bi bi-file-earmark-arrow-down me-1 text-success"></i><?= e($ent['titulo']) ?></b>
-                                        <small class="text-muted"><?= e($ent['notas'] ?: fecha_php($ent['creado_en'], 'd/m/Y H:i')) ?></small>
+                                        <small class="text-muted"><?= e($ent['notas'] ?: date('d/m/Y H:i', strtotime($ent['creado_en']))) ?></small>
                                     </div>
                                     <form method="POST" class="d-inline"><?= campo_csrf() ?>
                                         <input type="hidden" name="accion" value="eliminar_entregable">
-                                        <input type="hidden" name="id" value="<?= e((string)$ent['id']) ?>">
-                                        <button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('Â¿Eliminar este entregable?')"><i class="bi bi-trash"></i></button>
+                                        <input type="hidden" name="id" value="<?= (int)$ent['id'] ?>">
+                                        <button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Eliminar este entregable?')"><i class="bi bi-trash"></i></button>
                                     </form>
                                 </div>
                             <?php endforeach; endif; ?>

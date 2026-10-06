@@ -9,8 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
-        $id = trim((string)($_POST['id'] ?? ''));
-        $id = $id !== '' ? $id : null;
+        $id = (int)($_POST['id'] ?? 0);
         $tituloC = trim($_POST['titulo']);
         $destinatario = trim($_POST['destinatario']);
         $contenido = trim($_POST['contenido']);
@@ -18,24 +17,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $activo = isset($_POST['activo']) ? 1 : 0;
         $slugBase = slugify($tituloC) ?: ('carta-' . date('YmdHis'));
 
-        if ($id !== null && oid($id) !== null) {
-            crud_actualizar('cartas', $id, [
-                'titulo'       => $tituloC,
-                'destinatario' => $destinatario,
-                'contenido'    => $contenido,
-                'firmado_por'  => $firmadoPor,
-                'activo'       => $activo,
-            ]);
+        if ($id > 0) {
+            $pdo->prepare("UPDATE cartas SET titulo=?, destinatario=?, contenido=?, firmado_por=?, activo=? WHERE id=?")
+                ->execute([$tituloC, $destinatario, $contenido, $firmadoPor, $activo, $id]);
             flash('Carta actualizada.');
         } else {
-            crud_crear('cartas', [
-                'titulo'       => $tituloC,
-                'slug'         => slug_unico('cartas', $slugBase),
-                'destinatario' => $destinatario,
-                'contenido'    => $contenido,
-                'firmado_por'  => $firmadoPor,
-                'activo'       => $activo,
-            ]);
+            $pdo->prepare("INSERT INTO cartas (titulo, slug, destinatario, contenido, firmado_por, activo) VALUES (?,?,?,?,?,?)")
+                ->execute([$tituloC, $slugBase, $destinatario, $contenido, $firmadoPor, $activo]);
             flash('Carta creada.');
         }
         header('Location: cartas.php');
@@ -43,17 +31,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        crud_eliminar('cartas', (string)$_POST['id']);
+        $pdo->prepare('DELETE FROM cartas WHERE id = ?')->execute([(int)$_POST['id']]);
         flash('Carta eliminada.', 'warning');
         header('Location: cartas.php');
         exit;
     }
 }
 
-$cartas = crud_listar('cartas', [], ['sort' => ['creado_en' => -1]]);
+$cartas = $pdo->query('SELECT * FROM cartas ORDER BY creado_en DESC')->fetchAll();
 $editar = null;
 if (isset($_GET['editar'])) {
-    $editar = crud_por_id('cartas', (string)$_GET['editar']);
+    $stmt = $pdo->prepare('SELECT * FROM cartas WHERE id = ?');
+    $stmt->execute([(int)$_GET['editar']]);
+    $editar = $stmt->fetch();
 }
 ?>
 
@@ -81,7 +71,7 @@ if (isset($_GET['editar'])) {
                             <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar esta carta?')">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= e((string)$c['id']) ?>">
+                                <input type="hidden" name="id" value="<?= (int)$c['id'] ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>

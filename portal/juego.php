@@ -5,20 +5,23 @@ requiere_sesion();
 $seccionPortal = 'juego';
 $titulo = 'Mini-juegos';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id']];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id']];
 
 /* ---------- Guardar puntaje ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verificar_csrf() || !empty($_POST['empresa'])) {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
-    $juego = in_array($_POST['juego'] ?? '', ['memorama', 'serpiente'], true) ? (string)$_POST['juego'] : 'memorama';
+    $juego = in_array($_POST['juego'] ?? '', ['memorama', 'serpiente'], true) ? $_POST['juego'] : 'memorama';
     $puntaje = max(0, (int)($_POST['puntaje'] ?? 0));
 
-    $record = juego_mejor($usuarioId, $juego);
-    if ($puntaje > $record) {
-        juego_guardar($usuarioId, $juego, $puntaje);
+    $stmt = $pdo->prepare('SELECT puntaje FROM juego_puntajes WHERE usuario_id = ? AND juego = ? ORDER BY puntaje DESC LIMIT 1');
+    $stmt->execute([(int)$usuario['id'], $juego]);
+    $record = (int)$stmt->fetchColumn();
+
+    if ($puntaje > 0 && $puntaje > $record) {
+        $pdo->prepare('INSERT INTO juego_puntajes (usuario_id, juego, puntaje) VALUES (?, ?, ?)')
+            ->execute([(int)$usuario['id'], $juego, $puntaje]);
         $record = $puntaje;
     }
 
@@ -30,12 +33,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ]);
 }
 
-$records = juego_mejores($usuarioId);
+$stmt = $pdo->prepare('SELECT juego, MAX(puntaje) AS mejor FROM juego_puntajes WHERE usuario_id = ? GROUP BY juego');
+$stmt->execute([(int)$usuario['id']]);
+$records = [];
+foreach ($stmt as $r) {
+    $records[$r['juego']] = (int)$r['mejor'];
+}
 
 /* ---------- Tabla de mejores puntajes (todos los clientes) ---------- */
 $mejores = [];
-foreach (['memorama', 'serpiente'] as $nomJuego) {
-    $mejores[$nomJuego] = juego_tablero($nomJuego, 5);
+foreach (['memorama', 'serpiente'] as $juego) {
+    $stmtT = $pdo->prepare('SELECT jp.puntaje, u.nombre, jp.creado_en
+                            FROM juego_puntajes jp JOIN usuarios u ON u.id = jp.usuario_id
+                            WHERE jp.juego = ? AND jp.puntaje > 0
+                            ORDER BY jp.puntaje DESC, jp.creado_en ASC LIMIT 5');
+    $stmtT->execute([$juego]);
+    $mejores[$juego] = $stmtT->fetchAll();
 }
 
 $puestoIconos = ['🥇', '🥈', '🥉'];
@@ -145,7 +158,7 @@ require_once __DIR__ . '/includes/cabecera.php';
                                         <span class="fs-5"><?= $puestoIconos[$i] ?? $i + 1 ?></span>
                                         <div class="flex-grow-1">
                                             <b class="d-block small"><?= e($t['nombre']) ?></b>
-                                            <small class="text-muted"><?= e(fecha_php($t['creado_en'] ?? $t['fecha'], 'd/m/Y')) ?></small>
+                                            <small class="text-muted"><?= e(date('d/m/Y', strtotime($t['creado_en']))) ?></small>
                                         </div>
                                         <span class="badge bg-fv"><?= (int)$t['puntaje'] ?> pts</span>
                                     </li>

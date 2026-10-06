@@ -10,8 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
-        $id = trim((string)($_POST['id'] ?? ''));
-        $id = $id !== '' ? $id : null;
+        $id = (int)($_POST['id'] ?? 0);
         $tituloP = trim($_POST['titulo']);
         $desc = trim($_POST['descripcion']);
         $categoria = trim($_POST['categoria'] ?: 'General');
@@ -37,42 +36,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
         $slugBase = slugify($tituloP) ?: ('proyecto-' . date('YmdHis'));
 
-        if ($id !== null && oid($id) !== null) {
-            $previa = crud_por_id('proyectos', $id);
-            crud_actualizar('proyectos', $id, [
-                'titulo'     => $tituloP,
-                'descripcion'=> $desc,
-                'categoria'  => $categoria,
-                'cliente'    => $cliente,
-                'anio'       => $anio,
-                'url'        => $url,
-                'destaque'   => $destacado,
-                'activo'     => $activo,
-            ]);
+        if ($id > 0) {
+            $sql = "UPDATE proyectos SET titulo=?, descripcion=?, categoria=?, cliente=?, anio=?, url=?, destaque=?, activo=?
+                    WHERE id=?";
+            $pdo->prepare($sql)->execute([$tituloP, $desc, $categoria, $cliente, $anio, $url, $destacado, $activo, $id]);
             if ($imagen !== null) {
-                eliminar_archivo($previa['imagen'] ?? null);
-                crud_actualizar('proyectos', $id, ['imagen' => $imagen]);
+                $prev = $pdo->prepare('SELECT imagen FROM proyectos WHERE id=?'); $prev->execute([$id]); $prevR = $prev->fetch();
+                eliminar_archivo($prevR['imagen'] ?? null);
+                $pdo->prepare('UPDATE proyectos SET imagen=? WHERE id=?')->execute([$imagen, $id]);
             }
             if ($archivo !== null) {
-                eliminar_archivo($previa['archivo'] ?? null);
-                crud_actualizar('proyectos', $id, ['archivo' => $archivo, 'archivo_nombre' => $archivoNombre]);
+                $prev = $pdo->prepare('SELECT archivo FROM proyectos WHERE id=?'); $prev->execute([$id]); $prevR = $prev->fetch();
+                eliminar_archivo($prevR['archivo'] ?? null);
+                $pdo->prepare('UPDATE proyectos SET archivo=?, archivo_nombre=? WHERE id=?')->execute([$archivo, $archivoNombre, $id]);
             }
             flash('Proyecto actualizado correctamente.');
         } else {
-            crud_crear('proyectos', [
-                'titulo'     => $tituloP,
-                'slug'       => slug_unico('proyectos', $slugBase),
-                'descripcion'=> $desc,
-                'categoria'  => $categoria,
-                'cliente'    => $cliente,
-                'anio'       => $anio,
-                'url'        => $url,
-                'imagen'     => $imagen,
-                'archivo'    => $archivo,
-                'archivo_nombre' => $archivoNombre,
-                'destaque'   => $destacado,
-                'activo'     => $activo,
-            ]);
+            $sql = "INSERT INTO proyectos (titulo, slug, descripcion, categoria, cliente, anio, url, imagen, archivo, archivo_nombre, destaque, activo)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+            $pdo->prepare($sql)->execute([$tituloP, $slugBase, $desc, $categoria, $cliente, $anio, $url, $imagen, $archivo, $archivoNombre, $destacado, $activo]);
             flash('Proyecto creado correctamente.');
         }
         header('Location: proyectos.php');
@@ -80,22 +62,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        $filas = crud_por_id('proyectos', (string)$_POST['id']);
+        $stmt = $pdo->prepare('SELECT imagen, archivo FROM proyectos WHERE id=?');
+        $stmt->execute([(int)$_POST['id']]);
+        $filas = $stmt->fetch();
         if ($filas) {
-            eliminar_archivo($filas['imagen'] ?? null);
-            eliminar_archivo($filas['archivo'] ?? null);
+            eliminar_archivo($filas['imagen']);
+            eliminar_archivo($filas['archivo']);
         }
-        crud_eliminar('proyectos', (string)$_POST['id']);
+        $pdo->prepare('DELETE FROM proyectos WHERE id = ?')->execute([(int)$_POST['id']]);
         flash('Proyecto eliminado.', 'warning');
         header('Location: proyectos.php');
         exit;
     }
 }
 
-$proyectos = crud_listar('proyectos', [], ['sort' => ['destaque' => -1, 'creado_en' => -1]]);
+$proyectos = $pdo->query('SELECT * FROM proyectos ORDER BY destaque DESC, creado_en DESC')->fetchAll();
 $editar = null;
 if (isset($_GET['editar'])) {
-    $editar = crud_por_id('proyectos', (string)$_GET['editar']);
+    $stmt = $pdo->prepare('SELECT * FROM proyectos WHERE id = ?');
+    $stmt->execute([(int)$_GET['editar']]);
+    $editar = $stmt->fetch();
 }
 ?>
 
@@ -130,7 +116,7 @@ if (isset($_GET['editar'])) {
                             <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este proyecto y sus archivos?')">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= e((string)$p['id']) ?>">
+                                <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>

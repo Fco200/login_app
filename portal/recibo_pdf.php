@@ -6,13 +6,21 @@ require_once __DIR__ . '/../lib/pdf.php';
 
 iniciar_sesion_segura();
 
-$id = trim((string)($_GET['id'] ?? ''));
-if (oid($id) === null) {
+$id = (int)($_GET['id'] ?? 0);
+if ($id <= 0) {
     http_response_code(400);
     exit('ID de pago inválido.');
 }
 
-$pago = pag_completo($id);
+$st = $GLOBALS['pdo']->prepare('SELECT p.*, mp.nombre AS metodo_nombre, u.nombre AS cliente_nombre, u.email AS cliente_email,
+                                       s.tipo_servicio AS concepto
+                                FROM pagos p
+                                LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
+                                LEFT JOIN usuarios u ON p.usuario_id = u.id
+                                LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+                                WHERE p.id = ?');
+$st->execute([$id]);
+$pago = $st->fetch();
 if (!$pago) {
     http_response_code(404);
     exit('Recibo no encontrado.');
@@ -20,16 +28,16 @@ if (!$pago) {
 
 $esAdmin = esta_admin();
 $usuario = sesion_actual();
-if (!$esAdmin && (!$usuario || (string)($usuario['id'] ?? '') !== (string)($pago['usuario_id'] ?? ''))) {
+if (!$esAdmin && (!$usuario || (int)$usuario['id'] !== (int)$pago['usuario_id'])) {
     http_response_code(403);
     exit('No autorizado.');
 }
 
 $e = datos_emisor();
-$folio = folio_pago_txt($pago);
+$folio = 'PAG-' . str_pad((string)$pago['id'], 5, '0', STR_PAD_LEFT);
 $monto = (float)$pago['monto'];
-$fechaTxt = fecha_php($pago['creado_en'], 'd/m/Y');
-$horaTxt = fecha_php($pago['creado_en'], 'H:i');
+$fechaTxt = date('d/m/Y', strtotime($pago['creado_en']));
+$horaTxt = date('H:i', strtotime($pago['creado_en']));
 $estadoTxt = ['aprobado' => 'Pagado', 'rechazado' => 'Rechazado', 'pendiente' => 'Pendiente'][$pago['estado']] ?? $pago['estado'];
 $colorEstado = $pago['estado'] === 'aprobado' ? [27, 122, 67] : ($pago['estado'] === 'rechazado' ? [192, 57, 43] : [160, 106, 0]);
 

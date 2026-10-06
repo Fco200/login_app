@@ -3,7 +3,7 @@ require_once __DIR__ . '/funciones.php';
 $seccion = 'solicitud';
 $titulo = 'Solicitud para empresas — ' . SITE_NOMBRE;
 
-$servicios = srv_activos();
+$servicios = $pdo->query("SELECT * FROM servicios WHERE activo = 1 ORDER BY destaque DESC, id ASC")->fetchAll();
 $servicioSel = trim($_GET['servicio'] ?? '');
 $usuarioSesion = sesion_actual();
 $enviada = false;
@@ -37,8 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['w
     $rango = trim($_POST['rango'] ?? '');
     $descripcion = trim($_POST['descripcion'] ?? '');
 
-    $srv = srv_por_slug($servicio);
-    $servicioNombre = (string)($srv['titulo'] ?? $servicio);
+    $stmt = $pdo->prepare("SELECT titulo FROM servicios WHERE slug = ? LIMIT 1");
+    $stmt->execute([$servicio]);
+    $servicioNombre = $stmt->fetchColumn() ?: $servicio;
 
     if ($empresa === '' || $nombre === '' || !$email || $telefono === '' || $servicio === '' || $rango === '' || $descripcion === '') {
         if (es_ajax()) {
@@ -47,51 +48,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['w
         flash('Completa los campos obligatorios: empresa, tu nombre, correo válido, teléfono, servicio, rango de inversión y la descripción de lo que necesitas.', 'danger');
     } else {
         $presupuesto = $rango;
+        $usuarioId = $usuarioSesion ? (int)$usuarioSesion['id'] : null;
         $detalle = $descripcion . ($empleados !== '' ? "\n\nTamaño de la empresa: " . $empleados : '');
-        $nueva = sol_crear([
-            'usuario_id'     => $usuarioSesion['id'] ?? null,
-            'nombre'         => $nombre,
-            'email'          => (string)$email,
-            'empresa'        => $empresa,
-            'cargo'          => $cargo ?: null,
-            'telefono'       => $telefono,
-            'tipo_servicio'  => $servicioNombre,
-            'presupuesto'    => $presupuesto ?: null,
-            'mensaje'        => $detalle,
-            'tipo_solicitud' => 'empresa',
-            'empleados'      => $empleados !== '' ? $empleados : null,
-            'rango'          => $rango !== '' ? $rango : null,
-        ]);
+        $pdo->prepare("INSERT INTO solicitudes (usuario_id, nombre, email, empresa, cargo, telefono, tipo_servicio, presupuesto, mensaje, tipo_solicitud, empleados, rango) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'empresa', ?, ?)")
+            ->execute([$usuarioId, $nombre, $email, $empresa, $cargo ?: null, $telefono, $servicioNombre, $presupuesto ?: null, $detalle, $empleados !== '' ? $empleados : null, $rango !== '' ? $rango : null]);
 
-        if (empty($nueva['ok'])) {
-            if (es_ajax()) {
-                responder(['ok' => false, 'mensaje' => $nueva['mensaje'] ?? 'No se pudo registrar la solicitud.', 'tipo' => 'danger']);
-            }
-            flash($nueva['mensaje'] ?? 'No se pudo registrar la solicitud.', 'danger');
-        } else {
-            if ($usuarioSesion) {
-                notificar($usuarioSesion['id'], 'exito', '¡Solicitud empresarial recibida!',
-                    "Recibimos la solicitud de $empresa por $servicioNombre. Te responderemos a la brevedad.",
-                    url_sitio('portal/solicitudes.php'));
-                responder([
-                    'ok'      => true,
-                    'titulo'  => '¡Solicitud empresarial enviada!',
-                    'mensaje' => "Gracias $nombre. El equipo de FV Digital revisará la propuesta para $empresa y te contactará en máximo 48 h hábiles.",
-                    'destino' => 'portal/solicitudes.php',
-                ]);
-            }
-
-            if (es_ajax()) {
-                responder([
-                    'ok'      => true,
-                    'titulo'  => '¡Solicitud empresarial enviada!',
-                    'mensaje' => "Gracias $nombre. El equipo de FV Digital revisará la propuesta para $empresa y te contactará en máximo 48 h hábiles.",
-                ]);
-            }
-
-            $enviada = true;
-            $datosForm = compact('empresa', 'cargo', 'nombre', 'email', 'telefono', 'servicio', 'empleados', 'rango');
+        if ($usuarioSesion) {
+            $solicitudId = (int)$pdo->lastInsertId();
+            registrar_historial($solicitudId, 'nueva', 'Solicitud empresarial registrada.');
+            notificar((int)$usuarioSesion['id'], 'exito', '¡Solicitud empresarial recibida!',
+                "Recibimos la solicitud de $empresa por $servicioNombre. Te responderemos a la brevedad.",
+                url_sitio('portal/solicitudes.php'));
+            responder([
+                'ok'      => true,
+                'titulo'  => '¡Solicitud empresarial enviada!',
+                'mensaje' => "Gracias $nombre. El equipo de FV Digital revisará la propuesta para $empresa y te contactará en máximo 48 h hábiles.",
+                'destino' => 'portal/solicitudes.php',
+            ]);
         }
+
+        if (es_ajax()) {
+            responder([
+                'ok'      => true,
+                'titulo'  => '¡Solicitud empresarial enviada!',
+                'mensaje' => "Gracias $nombre. El equipo de FV Digital revisará la propuesta para $empresa y te contactará en máximo 48 h hábiles.",
+            ]);
+        }
+
+        $enviada = true;
+        $datosForm = compact('empresa', 'cargo', 'nombre', 'email', 'telefono', 'servicio', 'empleados', 'rango');
     }
 }
 

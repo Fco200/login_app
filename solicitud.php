@@ -3,7 +3,7 @@ require_once __DIR__ . '/funciones.php';
 $seccion = 'solicitud';
 $titulo = 'Solicitar una cotización — ' . SITE_NOMBRE;
 
-$servicios = srv_activos();
+$servicios = $pdo->query("SELECT * FROM servicios WHERE activo = 1 ORDER BY destaque DESC, id ASC")->fetchAll();
 $servicioSel = trim($_GET['servicio'] ?? '');
 $usuarioSesion = sesion_actual();
 $enviada = false;
@@ -40,8 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['e
 
     $descripcion = trim($_POST['descripcion']);
 
-    $srv = srv_por_slug($servicio);
-    $servicioNombre = (string)($srv['titulo'] ?? $servicio);
+    $stmt = $pdo->prepare("SELECT titulo FROM servicios WHERE slug = ? LIMIT 1");
+    $stmt->execute([$servicio]);
+    $servicioNombre = $stmt->fetchColumn() ?: $servicio;
 
     if ($nombre === '' || !$email || $telefono === '' || $servicio === '' || $descripcion === '') {
         if (es_ajax()) {
@@ -49,45 +50,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['e
         }
         flash('Todos los campos son obligatorios. Verifica que el correo sea válido.', 'danger');
     } else {
-        $nueva = sol_crear([
-            'usuario_id'    => $usuarioSesion['id'] ?? null,
-            'nombre'        => $nombre,
-            'email'         => (string)$email,
-            'telefono'      => $telefono,
-            'tipo_servicio' => $servicioNombre,
-            'presupuesto'   => $presupuesto ?: null,
-            'mensaje'       => $descripcion,
-            'tipo_solicitud'=> 'individual',
-        ]);
+        $usuarioId = $usuarioSesion ? (int)$usuarioSesion['id'] : null;
+        $pdo->prepare("INSERT INTO solicitudes (usuario_id, nombre, email, telefono, tipo_servicio, presupuesto, mensaje) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            ->execute([$usuarioId, $nombre, $email, $telefono, $servicioNombre, $presupuesto ?: null, $descripcion]);
 
-        if (empty($nueva['ok'])) {
-            if (es_ajax()) {
-                responder(['ok' => false, 'mensaje' => $nueva['mensaje'] ?? 'No se pudo registrar la solicitud.', 'tipo' => 'danger']);
-            }
-            flash($nueva['mensaje'] ?? 'No se pudo registrar la solicitud.', 'danger');
-        } else {
-            if ($usuarioSesion) {
-                notificar($usuarioSesion['id'], 'exito', '¡Solicitud recibida!',
-                    "Registramos tu solicitud de $servicioNombre y empezamos a revisarla.", url_sitio('portal/solicitudes.php'));
-                responder([
-                    'ok'      => true,
-                    'titulo'  => '¡Solicitud enviada!',
-                    'mensaje' => 'Tu solicitud fue registrada. Podrás darle seguimiento en tu portal de clientes.',
-                    'destino' => 'portal/solicitudes.php',
-                ]);
-            }
-
-            if (es_ajax()) {
-                responder([
-                    'ok'      => true,
-                    'titulo'  => '¡Solicitud enviada!',
-                    'mensaje' => "Gracias $nombre, tu solicitud fue registrada. Te responderemos a la brevedad por correo o WhatsApp.",
-                ]);
-            }
-
-            $enviada = true;
-            $datosForm = compact('nombre', 'email', 'telefono', 'servicio', 'descripcion');
+        if ($usuarioSesion) {
+            $solicitudId = (int)$pdo->lastInsertId();
+            registrar_historial($solicitudId, 'nueva', 'Solicitud registrada.');
+            notificar((int)$usuarioSesion['id'], 'exito', '¡Solicitud recibida!',
+                "Registramos tu solicitud de $servicioNombre y empezamos a revisarla.", url_sitio('portal/solicitudes.php'));
+            responder([
+                'ok'      => true,
+                'titulo'  => '¡Solicitud enviada!',
+                'mensaje' => 'Tu solicitud fue registrada. Podrás darle seguimiento en tu portal de clientes.',
+                'destino' => 'portal/solicitudes.php',
+            ]);
         }
+
+        if (es_ajax()) {
+            responder([
+                'ok'      => true,
+                'titulo'  => '¡Solicitud enviada!',
+                'mensaje' => "Gracias $nombre, tu solicitud fue registrada. Te responderemos a la brevedad por correo o WhatsApp.",
+            ]);
+        }
+
+        $enviada = true;
+        $datosForm = compact('nombre', 'email', 'telefono', 'servicio', 'descripcion');
     }
 }
 

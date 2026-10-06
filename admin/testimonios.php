@@ -9,8 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
-        $id = trim((string)($_POST['id'] ?? ''));
-        $id = $id !== '' ? $id : null;
+        $id = (int)($_POST['id'] ?? 0);
         $nombre = trim($_POST['nombre']);
         $cargo = trim($_POST['cargo']);
         $mensaje = trim($_POST['mensaje']);
@@ -18,23 +17,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         if ($valoracion < 1 || $valoracion > 5) $valoracion = 5;
         $activo = isset($_POST['activo']) ? 1 : 0;
 
-        if ($id !== null && oid($id) !== null) {
-            crud_actualizar('testimonios', $id, [
-                'nombre'     => $nombre,
-                'cargo'      => $cargo,
-                'mensaje'    => $mensaje,
-                'valoracion' => $valoracion,
-                'activo'     => $activo,
-            ]);
+        if ($id > 0) {
+            $pdo->prepare("UPDATE testimonios SET nombre=?, cargo=?, mensaje=?, valoracion=?, activo=? WHERE id=?")
+                ->execute([$nombre, $cargo, $mensaje, $valoracion, $activo, $id]);
             flash('Testimonio actualizado.');
         } else {
-            crud_crear('testimonios', [
-                'nombre'     => $nombre,
-                'cargo'      => $cargo,
-                'mensaje'    => $mensaje,
-                'valoracion' => $valoracion,
-                'activo'     => $activo,
-            ]);
+            $pdo->prepare("INSERT INTO testimonios (nombre, cargo, mensaje, valoracion, activo) VALUES (?,?,?,?,?)")
+                ->execute([$nombre, $cargo, $mensaje, $valoracion, $activo]);
             flash('Testimonio creado.');
         }
         header('Location: testimonios.php');
@@ -42,17 +31,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        crud_eliminar('testimonios', (string)$_POST['id']);
+        $pdo->prepare('DELETE FROM testimonios WHERE id = ?')->execute([(int)$_POST['id']]);
         flash('Testimonio eliminado.', 'warning');
         header('Location: testimonios.php');
         exit;
     }
 }
 
-$testimonios = crud_listar('testimonios', [], ['sort' => ['_id' => -1]]);
+$testimonios = $pdo->query('SELECT * FROM testimonios ORDER BY id DESC')->fetchAll();
 $editar = null;
 if (isset($_GET['editar'])) {
-    $editar = crud_por_id('testimonios', (string)$_GET['editar']);
+    $stmt = $pdo->prepare('SELECT * FROM testimonios WHERE id = ?');
+    $stmt->execute([(int)$_GET['editar']]);
+    $editar = $stmt->fetch();
 }
 ?>
 
@@ -83,7 +74,7 @@ if (isset($_GET['editar'])) {
                             <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este testimonio?')">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= e((string)$t['id']) ?>">
+                                <input type="hidden" name="id" value="<?= (int)$t['id'] ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                             </form>
                         </td>

@@ -7,20 +7,26 @@ if (($_GET['export'] ?? '') === 'csv') {
     if (!esta_logueado()) {
         redirigir('iniciar-sesion.php');
     }
-    $uid = (string)$_SESSION['usuario_id'];
-    $pagos = pag_de_usuario($uid);
+    $uid = (int)$_SESSION['usuario_id'];
+    $stmt = $GLOBALS['pdo']->prepare('SELECT p.id, p.creado_en, s.tipo_servicio AS concepto, mp.nombre AS metodo,
+                                             p.tipo_pago, p.monto, p.estado, p.notas
+                                      FROM pagos p
+                                      LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
+                                      LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+                                      WHERE p.usuario_id = ?
+                                      ORDER BY p.creado_en DESC');
+    $stmt->execute([$uid]);
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="historial-pagos-' . date('Y-m-d') . '.csv"');
     $salida = fopen('php://output', 'w');
     fwrite($salida, "\xEF\xBB\xBF");
     fputcsv($salida, ['Folio', 'Fecha', 'Concepto', 'Método', 'Tipo', 'Monto', 'Estado', 'Notas']);
-    foreach ($pagos as $pago) {
-        $f = pag_con_relaciones($pago);
+    foreach ($stmt as $f) {
         fputcsv($salida, [
-            folio_pago_txt($f),
-            fecha_php($f['creado_en'], 'd/m/Y H:i'),
-            $f['tipo_servicio'] ?: 'Compra de productos',
-            $f['metodo_nombre'] ?: '',
+            'PAG-' . str_pad((string)$f['id'], 5, '0', STR_PAD_LEFT),
+            date('d/m/Y H:i', strtotime($f['creado_en'])),
+            $f['concepto'] ?: 'Compra de productos',
+            $f['metodo'] ?: '',
             $f['tipo_pago'],
             number_format((float)$f['monto'], 2) . ' MXN',
             $f['estado'],
@@ -36,23 +42,24 @@ require_once __DIR__ . '/includes/cabecera.php';
 $seccionPortal = 'pagos';
 $titulo = 'Mis pagos';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'email' => '', 'nombre' => $_SESSION['nombre'] ?? 'Cliente'];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'email' => '', 'nombre' => $_SESSION['nombre'] ?? 'Cliente'];
 
 /* ---------- Registrar pago desde Mis Pagos (saldos) ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'pagar_saldo') {
-        $proyectoId = trim((string)($_POST['proyecto_id'] ?? ''));
+        $proyectoId = (int)($_POST['proyecto_id'] ?? 0);
         $monto = (float)($_POST['monto'] ?? 0);
         $tipo = ($_POST['tipo_pago'] ?? '') === 'restante' ? 'restante' : 'completo';
-        if (oid($proyectoId) === null || $monto <= 0) {
+        if ($proyectoId <= 0 || $monto <= 0) {
             responder(['ok' => false, 'mensaje' => 'Captura un monto válido.', 'tipo' => 'warning']);
         }
-        /* Validar pertenencia; el resto lo cubre pago_registrar. */
-        $proy = col_q1('proyectos_inicio', ['_id' => oid($proyectoId), 'usuario_id' => oid($usuarioId)]);
-        if ($proy === null) {
+        /* Validar pertenencia; el resto lo cubre pago_registrar en transacción. */
+        $stmtProj = $pdo->prepare('SELECT id, estado FROM proyectos_inicio WHERE id = ? AND usuario_id = ?');
+        $stmtProj->execute([$proyectoId, (int)$usuario['id']]);
+        $proy = $stmtProj->fetch();
+        if (!$proy) {
             responder(['ok' => false, 'mensaje' => 'El proyecto no existe o no te pertenece.', 'tipo' => 'danger']);
         }
         if (($proy['estado'] ?? '') === 'liquidado') {
@@ -61,20 +68,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         if (empty($_FILES['comprobante']['name']) || $_FILES['comprobante']['error'] !== UPLOAD_ERR_OK) {
             responder(['ok' => false, 'mensaje' => 'Es obligatorio subir el comprobante de pago para registrar tu pago.', 'tipo' => 'warning']);
         }
+        $comprobanteRuta = null;
         $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
-        if (!$res['ok']) {
+        if ($res['ok']) {
+            $comprobanteRuta = $res['archivo'];
+        } else {
             responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
         }
-        /* Registro central con idempotencia + historial. */
+        /* Registro central con transacción + idempotencia + historial. */
         $r = pago_registrar([
-            'usuario_id'     => $usuarioId,
+            'usuario_id'     => (int)$usuario['id'],
             'proyecto_id'    => $proyectoId,
             'tipo_pago'      => $tipo,
             'monto'          => $monto,
-            'metodo_pago_id' => trim((string)($_POST['metodo_pago_id'] ?? '')),
-            'comprobante'    => $res['archivo'],
+            'metodo_pago_id' => (int)($_POST['metodo_pago_id'] ?? 0),
+            'comprobante'    => $comprobanteRuta,
             'clave_unica'    => trim((string)($_POST['clave_unica'] ?? '')),
-            'notas'          => 'Pago de saldo para proyecto ' . (string)$proy['id'],
+            'notas'          => 'Pago de saldo para proyecto #' . $proyectoId,
         ]);
         if ($r['ok']) {
             responder([
@@ -88,56 +98,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 
     if ($accion === 'pagar_producto') {
-        $metodoId = trim((string)($_POST['metodo_pago_id'] ?? ''));
+        $metodoId = (int)($_POST['metodo_pago_id'] ?? 0);
         $monto = (float)($_POST['monto'] ?? 0);
         if ($monto <= 0) {
             responder(['ok' => false, 'mensaje' => 'Captura un monto válido.', 'tipo' => 'warning']);
         }
+        /* Idempotencia del carrito: mismo token no duplica el pedido. */
+        $claveProducto = trim((string)($_POST['clave_unica'] ?? ''));
+        if ($claveProducto !== '') {
+            $stK = $pdo->prepare('SELECT id FROM pagos WHERE clave_unica = ?');
+            $stK->execute([$claveProducto]);
+            if ($stK->fetch()) {
+                responder(['ok' => true, 'mensaje' => 'Tu pedido ya fue registrado; no se duplicó.', 'tipo' => 'info', 'destino' => url_sitio('portal/pagos.php')]);
+            }
+        }
         if (empty($_FILES['comprobante']['name']) || $_FILES['comprobante']['error'] !== UPLOAD_ERR_OK) {
             responder(['ok' => false, 'mensaje' => 'Es obligatorio subir el comprobante de pago. Sin comprobante no podemos procesar tu pedido.', 'tipo' => 'warning']);
         }
-        $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
-        if (!$res['ok']) {
-            responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
+        $comprobanteRuta = null;
+        if (!empty($_FILES['comprobante']['name'])) {
+            $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
+            if ($res['ok']) {
+                $comprobanteRuta = $res['archivo'];
+            } else {
+                responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
+            }
         }
-        /* Idempotencia del carrito: mismo token no duplica el pedido. */
-        $r = pago_registrar_producto([
-            'usuario_id'     => $usuarioId,
-            'metodo_pago_id' => $metodoId,
-            'monto'          => $monto,
-            'comprobante'    => $res['archivo'],
-            'clave_unica'    => trim((string)($_POST['clave_unica'] ?? '')),
-        ]);
-        if ($r['ok']) {
-            responder([
-                'ok'      => true,
-                'mensaje' => $r['mensaje'],
-                'tipo'    => !empty($r['ya_existia']) ? 'info' : 'success',
-                'destino' => url_sitio('portal/pagos.php'),
-            ]);
+        try {
+            $pdo->prepare('INSERT INTO pagos (usuario_id, solicitud_id, metodo_pago_id, monto, tipo_pago, comprobante, estado, notas, clave_unica) VALUES (?,?,?,?,?,?,?,?,?)')
+                ->execute([
+                    (int)$usuario['id'],
+                    null,
+                    $metodoId > 0 ? $metodoId : null,
+                    $monto,
+                    'producto',
+                    $comprobanteRuta,
+                    'pendiente',
+                    'Compra desde el carrito',
+                    $claveProducto !== '' ? $claveProducto : null,
+                ]);
+            /* Vaciar el carrito del usuario después del pago */
+            $pdo->prepare('DELETE FROM carrito WHERE usuario_id = ?')->execute([(int)$usuario['id']]);
+            notificar((int)$usuario['id'], 'pago', 'Pedido registrado', 'Tu pago de $' . number_format($monto, 0) . ' MXN por productos fue registrado. Espera la confirmación del equipo.', url_sitio('portal/pagos.php'));
+            notificar_admins('pago', 'Compra pendiente de confirmación', $usuario['nombre'] . ' realizó una compra por $' . number_format($monto, 0) . ' MXN desde el carrito.', url_sitio('admin/pagos.php'));
+            responder(['ok' => true, 'mensaje' => 'Pago de productos registrado. Tu carrito se vació y tu pedido queda pendiente de confirmación.', 'tipo' => 'success', 'destino' => url_sitio('portal/pagos.php')]);
+        } catch (PDOException $e) {
+            /* Carrera de doble envío: el token ya se insertó.
+               Se responde como ya registrado sin duplicar el pedido. */
+            if ((string)$e->getCode() === '23000') {
+                responder(['ok' => true, 'mensaje' => 'Tu pedido ya fue registrado; no se duplicó.', 'tipo' => 'info', 'destino' => url_sitio('portal/pagos.php')]);
+            }
+            responder(['ok' => false, 'mensaje' => 'No se pudo registrar el pedido: ' . $e->getMessage(), 'tipo' => 'danger']);
         }
-        responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
     }
 }
 
 date_default_timezone_set('America/Hermosillo');
 
-/* Pagos del usuario (con método de pago y tipo de servicio resueltos) */
-$pagos = array_map('pag_con_relaciones', pag_de_usuario($usuarioId));
+/* Pagos del usuario */
+$stmt = $pdo->prepare('SELECT p.*, mp.nombre AS metodo_nombre, s.tipo_servicio
+                       FROM pagos p
+                       LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
+                       LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+                       WHERE p.usuario_id = ?
+                       ORDER BY p.creado_en DESC');
+$stmt->execute([(int)$usuario['id']]);
+$pagos = $stmt->fetchAll();
 
 /* Proyectos con saldos (para pagar el restante) */
-$proyectos = proy_con_saldo($usuarioId);
+$stmtProj = $pdo->prepare('SELECT pi.*, s.tipo_servicio, s.presupuesto
+                           FROM proyectos_inicio pi
+                           LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
+                           WHERE pi.usuario_id = ? AND pi.estado IN ("anticipo_pendiente","en_desarrollo")
+                             AND pi.saldo_restante > 0
+                           ORDER BY pi.creado_en DESC');
+$stmtProj->execute([(int)$usuario['id']]);
+$proyectos = $stmtProj->fetchAll();
 
-/* Total pagado por el usuario (aprobados + pendientes) */
+/* Total pagado por el usuario */
 $totalPagado = 0.0;
 foreach ($pagos as $pg) {
-    if ($pg['estado'] === 'aprobado' || $pg['estado'] === 'pendiente') {
+    if ($pg['estado'] === 'aprobado') {
+        $totalPagado += (float)$pg['monto'];
+    } elseif ($pg['estado'] === 'pendiente') {
         $totalPagado += (float)$pg['monto'];
     }
 }
 
 /* Métodos de pago activos */
-$metodosPago = mp_activos();
+$metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY nombre ASC')->fetchAll();
 
 $estadoPago = [
     'pendiente' => ['badge text-bg-warning', 'bi-clock', 'Pendiente'],
@@ -210,8 +259,8 @@ $tipoPago = [
                     $estado  = $proj['estado'] ?? '';
                     $esLiquidado = $estado === 'liquidado' || $saldo <= 0.01;
                     $claveSaldo = pago_generar_clave([
-                        'proyecto' => $proj['id'],
-                        'usuario'  => $usuarioId,
+                        'proyecto' => (int)$proj['id'],
+                        'usuario'  => (int)$usuario['id'],
                         'monto'    => $saldo,
                         'accion'   => 'pagar_saldo',
                         's'        => session_id(),
@@ -221,7 +270,7 @@ $tipoPago = [
                         <div class="card border-0 bg-light h-100">
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <b><i class="bi bi-code-slash me-1 text-primary"></i><?= e($proj['tipo_servicio'] ?: 'Proyecto #' . $proj['id']) ?></b>
+                                    <b><i class="bi bi-code-slash me-1 text-primary"></i><?= e($proj['tipo_servicio'] ?: 'Proyecto #' . (int)$proj['id']) ?></b>
                                     <?php if ($esLiquidado): ?>
                                         <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Liquidado / Finalizado</span>
                                     <?php elseif ($estado === 'en_desarrollo'): ?>
@@ -246,7 +295,7 @@ $tipoPago = [
                                     </div>
                                 </div>
                                 <?php if (!$esLiquidado): ?>
-                                    <button class="btn btn-sm btn-fv w-100" data-bs-toggle="modal" data-bs-target="#modalSaldo<?= $proj['id'] ?>"><i class="bi bi-credit-card me-1"></i>Pagar saldo</button>
+                                    <button class="btn btn-sm btn-fv w-100" data-bs-toggle="modal" data-bs-target="#modalSaldo<?= (int)$proj['id'] ?>"><i class="bi bi-credit-card me-1"></i>Pagar saldo</button>
                                 <?php else: ?>
                                     <div class="text-center text-success small fw-semibold py-1">
                                         <i class="bi bi-check-circle me-1"></i>Proyecto liquidado sin saldo pendiente
@@ -258,13 +307,13 @@ $tipoPago = [
 
                     <?php if (!$esLiquidado): ?>
                     <!-- Modal de pago de saldo -->
-                    <div class="modal fade" id="modalSaldo<?= $proj['id'] ?>" tabindex="-1" aria-hidden="true">
+                    <div class="modal fade" id="modalSaldo<?= (int)$proj['id'] ?>" tabindex="-1" aria-hidden="true">
                         <div class="modal-dialog">
                             <div class="modal-content">
                                 <form method="POST" class="js-ajax" action="pagos.php" enctype="multipart/form-data">
                                     <?= campo_csrf() ?>
                                     <input type="hidden" name="accion" value="pagar_saldo">
-                                    <input type="hidden" name="proyecto_id" value="<?= $proj['id'] ?>">
+                                    <input type="hidden" name="proyecto_id" value="<?= (int)$proj['id'] ?>">
                                     <input type="hidden" name="clave_unica" value="<?= e($claveSaldo) ?>">
                                     <div class="modal-header">
                                         <h5 class="modal-title fw-bold"><i class="bi bi-receipt me-2 text-primary"></i>Pagar saldo del proyecto</h5>
@@ -293,7 +342,7 @@ $tipoPago = [
                                                 <select name="metodo_pago_id" class="form-select metodo-pago-multi" required>
                                                     <option value="">Selecciona un método...</option>
                                                     <?php foreach ($metodosPago as $mp): ?>
-                                                        <option value="<?= $mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
+                                                        <option value="<?= (int)$mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
                                                     <?php endforeach; ?>
                                                 </select>
                                                 <div class="metodo-info d-none mt-2">
@@ -356,8 +405,8 @@ $tipoPago = [
                     <tbody>
                         <?php foreach ($pagos as $pg): [$pBg, $pIco, $pTxt] = $estadoPago[$pg['estado']] ?? ['badge text-bg-light', 'bi-question', ucfirst($pg['estado'])]; [$tpTxt, $tpIco] = $tipoPago[$pg['tipo_pago']] ?? [ucfirst($pg['tipo_pago']), 'bi-receipt']; ?>
                             <tr>
-                                <td class="ps-3 small fw-semibold"><?= e(folio_pago_txt($pg)) ?></td>
-                                <td class="small text-muted"><?= e(fecha_php($pg['creado_en'], 'd/m/Y H:i')) ?></td>
+                                <td class="ps-3 small fw-semibold"><?= e('PAG-' . str_pad((string)$pg['id'], 5, '0', STR_PAD_LEFT)) ?></td>
+                                <td class="small text-muted"><?= e(date('d/m/Y H:i', strtotime($pg['creado_en']))) ?></td>
                                 <td class="small"><?= e($pg['tipo_servicio'] ?: 'Compra de productos') ?><?= $pg['notas'] ? '<br><small class="text-muted">' . e(mb_strimwidth($pg['notas'], 0, 60, '…')) . '</small>' : '' ?></td>
                                 <td class="small"><?= e($pg['metodo_nombre'] ?: '—') ?></td>
                                 <td class="fw-semibold">$<?= number_format((float)$pg['monto'], 0) ?> MXN</td>
@@ -371,7 +420,7 @@ $tipoPago = [
                                 </td>
                                 <td class="text-end pe-3">
                                     <?php if ($pg['estado'] === 'aprobado'): ?>
-                                        <a href="recibo.php?id=<?= $pg['id'] ?>" target="_blank" class="btn btn-sm btn-outline-success" title="Descargar recibo"><i class="bi bi-receipt"></i></a>
+                                        <a href="recibo.php?id=<?= (int)$pg['id'] ?>" target="_blank" class="btn btn-sm btn-outline-success" title="Descargar recibo"><i class="bi bi-receipt"></i></a>
                                     <?php else: ?>
                                         <span class="text-muted small" title="El recibo se habilita al aprobarse el pago">—</span>
                                     <?php endif; ?>

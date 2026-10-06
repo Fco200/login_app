@@ -4,25 +4,30 @@ require_once __DIR__ . '/includes/cabecera.php';
 $seccionPortal = 'carrito';
 $titulo = 'Mi carrito';
 
-$usuario = sesion_actual() ?? ['id' => (string)($_SESSION['usuario_id'] ?? ''), 'email' => ''];
-$usuarioId = $usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'email' => ''];
+$usuarioId = (int)$usuario['id'];
 
 /* ---------- Acciones POST (agregar / actualizar / eliminar / pagar) ---------- */
-
-/** Respuesta estándar de las acciones del carrito (la consume el JS). */
-function responder_carrito($usuarioId, array $extra = []): void
-{
-    $r = car_resumen($usuarioId);
-    responder($extra + [
-        'ok'          => true,
-        'tipo'        => 'success',
-        'cart_count'  => $r['count'],
-        'cart_items'  => count($r['items']),
-        'cart_units'  => $r['unidades'],
-        'cart_subtotal' => '$' . number_format($r['subtotal'], 0) . ' MXN',
-        'cart_total'  => '$' . number_format($r['subtotal'], 0) . ' MXN',
-        'vacio'       => empty($r['items']),
-    ]);
+function resumen_carrito(int $usuarioId): array {
+    global $pdo;
+    $stmt = $pdo->prepare('SELECT c.*, sv.titulo AS servicio_titulo, pr.titulo AS producto_titulo FROM carrito c
+                           LEFT JOIN servicios sv ON c.servicio_id = sv.id
+                           LEFT JOIN productos pr ON c.producto_id = pr.id
+                           WHERE c.usuario_id = ?');
+    $stmt->execute([$usuarioId]);
+    $items = $stmt->fetchAll();
+    $subtotal = 0.0;
+    $unidades = 0;
+    foreach ($items as $it) {
+        $subtotal += (float)$it['precio_unitario'] * (int)$it['cantidad'];
+        $unidades += (int)$it['cantidad'];
+    }
+    return [
+        'items'    => count($items),
+        'unidades' => $unidades,
+        'subtotal' => $subtotal,
+        'count'    => $unidades,
+    ];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -32,63 +37,147 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'agregar') {
-        $servicioId = trim((string)($_POST['servicio_id'] ?? ''));
-        $productoId = trim((string)($_POST['producto_id'] ?? ''));
+        $servicioId = (int)($_POST['servicio_id'] ?? 0);
+        $productoId = (int)($_POST['producto_id'] ?? 0);
         $cantidad = max(1, (int)($_POST['cantidad'] ?? 1));
+        $precio = 0.0;
+        $tipoItem = '';
+        $tituloItem = '';
 
-        if ($productoId !== '') {
-            $r = car_agregar($usuarioId, 'producto', $productoId, $cantidad);
-        } elseif ($servicioId !== '') {
-            $r = car_agregar($usuarioId, 'servicio', $servicioId, $cantidad);
+        if ($productoId > 0) {
+            $stmt = $pdo->prepare('SELECT * FROM productos WHERE id = ? AND activo = 1');
+            $stmt->execute([$productoId]);
+            $p = $stmt->fetch();
+            if (!$p) {
+                responder(['ok' => false, 'mensaje' => 'El producto ya no está disponible.', 'tipo' => 'warning']);
+            }
+            $precio = (float)$p['precio'];
+            $tipoItem = 'producto';
+            $tituloItem = $p['titulo'];
+        } elseif ($servicioId > 0) {
+            $stmt = $pdo->prepare('SELECT * FROM servicios WHERE id = ? AND activo = 1');
+            $stmt->execute([$servicioId]);
+            $s = $stmt->fetch();
+            if (!$s) {
+                responder(['ok' => false, 'mensaje' => 'El servicio ya no está disponible.', 'tipo' => 'warning']);
+            }
+            $precio = (float)($s['precio_desde'] ?? 0);
+            $tipoItem = 'servicio';
+            $tituloItem = $s['titulo'];
+            $productoId = null;
         } else {
-            $r = ['ok' => false, 'mensaje' => 'No se especificó qué agregar.'];
+            responder(['ok' => false, 'mensaje' => 'No se especificó qué agregar.', 'tipo' => 'warning']);
         }
 
-        if (!$r['ok']) {
-            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'warning']);
+        if ($precio <= 0) {
+            responder(['ok' => false, 'mensaje' => 'Este ítem no tiene precio configurado.', 'tipo' => 'warning']);
         }
-        responder_carrito($usuarioId, ['ok' => true, 'mensaje' => $r['mensaje']]);
+
+        /* Si el ítem ya está en el carrito, sumamos la cantidad */
+        if ($tipoItem === 'producto') {
+            $stmtChk = $pdo->prepare('SELECT id, cantidad FROM carrito WHERE usuario_id = ? AND producto_id = ?');
+            $stmtChk->execute([$usuarioId, $productoId]);
+        } else {
+            $stmtChk = $pdo->prepare('SELECT id, cantidad FROM carrito WHERE usuario_id = ? AND servicio_id = ?');
+            $stmtChk->execute([$usuarioId, $servicioId]);
+        }
+        $existente = $stmtChk->fetch();
+        if ($existente) {
+            $pdo->prepare('UPDATE carrito SET cantidad = cantidad + ?, precio_unitario = ? WHERE id = ?')
+                ->execute([$cantidad, $precio, (int)$existente['id']]);
+        } else {
+            $pdo->prepare('INSERT INTO carrito (usuario_id, servicio_id, producto_id, cantidad, precio_unitario) VALUES (?,?,?,?,?)')
+                ->execute([$usuarioId, $servicioId, $productoId, $cantidad, $precio]);
+        }
+        $resumen = resumen_carrito($usuarioId);
+        responder([
+            'ok' => true,
+            'mensaje' => "$tituloItem se agregó a tu carrito.",
+            'tipo' => 'success',
+            'cart_count' => $resumen['count'],
+        ]);
     }
 
     if ($accion === 'actualizar') {
-        $idItem = trim((string)($_POST['id'] ?? ''));
+        $idItem = (int)($_POST['id'] ?? 0);
         $cantidad = max(1, (int)($_POST['cantidad'] ?? 1));
-        $item = col_q1('carrito', array_merge(filtro_id($idItem), ['usuario_id' => oid($usuarioId)]));
-        $r = car_actualizar($usuarioId, $idItem, $cantidad);
-        if (!$r['ok']) {
-            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'warning']);
+        $stmt = $pdo->prepare('SELECT c.* FROM carrito c WHERE id = ? AND usuario_id = ?');
+        $stmt->execute([$idItem, $usuarioId]);
+        $item = $stmt->fetch();
+        if (!$item) {
+            responder(['ok' => false, 'mensaje' => 'Ese ítem ya no está en tu carrito.', 'tipo' => 'warning']);
         }
-        responder_carrito($usuarioId, [
+        $pdo->prepare('UPDATE carrito SET cantidad = ? WHERE id = ? AND usuario_id = ?')
+            ->execute([$cantidad, $idItem, $usuarioId]);
+
+        $resumen = resumen_carrito($usuarioId);
+        responder([
             'ok' => true,
-            'mensaje' => $r['mensaje'],
+            'mensaje' => 'Carrito actualizado.',
+            'tipo' => 'success',
+            'cart_count' => $resumen['count'],
+            'cart_items' => $resumen['items'],
+            'cart_units' => $resumen['unidades'],
+            'cart_subtotal' => '$' . number_format($resumen['subtotal'], 0) . ' MXN',
+            'cart_total' => '$' . number_format($resumen['subtotal'], 0) . ' MXN',
             'item_id' => $idItem,
-            'item_subtotal' => '$' . number_format((float)($item['precio_unitario'] ?? 0) * $cantidad, 0),
+            'item_subtotal' => '$' . number_format((float)$item['precio_unitario'] * $cantidad, 0),
         ]);
     }
 
     if ($accion === 'eliminar') {
-        $idItem = trim((string)($_POST['id'] ?? ''));
-        car_eliminar($usuarioId, $idItem);
-        responder_carrito($usuarioId, [
+        $idItem = (int)($_POST['id'] ?? 0);
+        $pdo->prepare('DELETE FROM carrito WHERE id = ? AND usuario_id = ?')->execute([$idItem, $usuarioId]);
+
+        $resumen = resumen_carrito($usuarioId);
+        responder([
             'ok' => true,
             'mensaje' => 'Ítem eliminado del carrito.',
+            'tipo' => 'success',
+            'cart_count' => $resumen['count'],
+            'cart_items' => $resumen['items'],
+            'cart_units' => $resumen['unidades'],
+            'cart_subtotal' => $resumen['subtotal'] > 0 ? '$' . number_format($resumen['subtotal'], 0) . ' MXN' : '$0 MXN',
+            'cart_total' => $resumen['subtotal'] > 0 ? '$' . number_format($resumen['subtotal'], 0) . ' MXN' : '$0 MXN',
             'item_eliminado' => $idItem,
+            'vacio' => $resumen['items'] === 0,
         ]);
     }
 
     if ($accion === 'vaciar') {
-        car_vaciar($usuarioId);
-        responder_carrito($usuarioId, ['ok' => true, 'mensaje' => 'Carrito vaciado.', 'cart_count' => 0]);
+        $pdo->prepare('DELETE FROM carrito WHERE usuario_id = ?')->execute([$usuarioId]);
+        responder([
+            'ok' => true,
+            'mensaje' => 'Carrito vaciado.',
+            'tipo' => 'success',
+            'cart_count' => 0,
+            'cart_items' => 0,
+            'cart_units' => 0,
+            'cart_subtotal' => '$0 MXN',
+            'cart_total' => '$0 MXN',
+            'vacio' => true,
+        ]);
     }
 }
 
 /* ---------- Contenido del carrito ---------- */
-$carrito = car_resumen($usuarioId);
-$items = $carrito['items'];
-$subtotalGlobal = (float)$carrito['subtotal'];
+$stmtItems = $pdo->prepare('SELECT c.*, sv.titulo AS servicio_titulo, sv.icono AS servicio_icono,
+                            pr.titulo AS producto_titulo, pr.imagen AS producto_imagen
+                            FROM carrito c
+                            LEFT JOIN servicios sv ON c.servicio_id = sv.id
+                            LEFT JOIN productos pr ON c.producto_id = pr.id
+                            WHERE c.usuario_id = ?
+                            ORDER BY c.creado_en DESC');
+$stmtItems->execute([$usuarioId]);
+$items = $stmtItems->fetchAll();
+
+$subtotalGlobal = 0.0;
+foreach ($items as $it) {
+    $subtotalGlobal += (float)$it['precio_unitario'] * (int)$it['cantidad'];
+}
 
 /* Métodos de pago activos para el checkout */
-$metodosPago = mp_activos();
+$metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY nombre ASC')->fetchAll();
 ?>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
@@ -111,7 +200,7 @@ $metodosPago = mp_activos();
         <p class="text-muted">Agrega servicios o productos desde el sitio y luego procede al pago.</p>
         <div class="d-flex justify-content-center gap-2 flex-wrap">
             <a href="../servicios.php" class="btn btn-fv"><i class="bi bi-grid me-1"></i>Ver servicios</a>
-            <?php $nProductos = count(prd_activos()); ?>
+            <?php $nProductos = (int)$pdo->query('SELECT COUNT(*) FROM productos WHERE activo = 1')->fetchColumn(); ?>
             <?php if ($nProductos > 0): ?>
                 <a href="../productos.php" class="btn btn-outline-fv"><i class="bi bi-box-seam me-1"></i>Ver productos</a>
             <?php endif; ?>
@@ -136,11 +225,11 @@ $metodosPago = mp_activos();
                     <?php foreach ($items as $it): ?>
                         <?php
                         $tituloItem = $it['servicio_titulo'] ?: ($it['producto_titulo'] ?: 'Ítem');
-                        $esServicio = !empty($it['servicio_id']);
+                        $esServicio = (int)$it['servicio_id'] > 0;
                         $img = !$esServicio ? $it['producto_imagen'] : null;
                         $subtotal = (float)$it['precio_unitario'] * (int)$it['cantidad'];
                         ?>
-                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom" id="item-<?= $it['id'] ?>">
+                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom" id="item-<?= (int)$it['id'] ?>">
                             <div class="flex-shrink-0 d-flex align-items-center justify-content-center"
                                  style="width:64px;height:64px;border-radius:12px;background:#e8f0fe;object-fit:cover;overflow:hidden;">
                                 <?php if ($img && file_exists(__DIR__ . '/../' . $img)): ?>
@@ -159,17 +248,17 @@ $metodosPago = mp_activos();
                             <form method="POST" action="carrito.php" class="js-ajax d-flex align-items-center gap-2">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="actualizar">
-                                <input type="hidden" name="id" value="<?= $it['id'] ?>">
+                                <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
                                 <div class="input-group input-group-sm" style="width:110px;">
                                     <input type="number" name="cantidad" class="form-control text-center" min="1" value="<?= (int)$it['cantidad'] ?>">
                                     <button class="btn btn-outline-primary" title="Actualizar"><i class="bi bi-arrow-clockwise"></i></button>
                                 </div>
                             </form>
-                            <b class="text-primary" style="min-width:90px;text-align:right;" data-subtotal-item="<?= $it['id'] ?>">$<?= number_format($subtotal, 0) ?></b>
+                            <b class="text-primary" style="min-width:90px;text-align:right;" data-subtotal-item="<?= (int)$it['id'] ?>">$<?= number_format($subtotal, 0) ?></b>
                             <form method="POST" action="carrito.php" onsubmit="return confirm('¿Eliminar este ítem?')" class="js-ajax d-inline">
                                 <?= campo_csrf() ?>
                                 <input type="hidden" name="accion" value="eliminar">
-                                <input type="hidden" name="id" value="<?= $it['id'] ?>">
+                                <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
                                 <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-x-lg"></i></button>
                             </form>
                         </div>
@@ -211,7 +300,7 @@ $metodosPago = mp_activos();
                 <form method="POST" class="js-ajax" action="pagos.php" enctype="multipart/form-data">
                     <?= campo_csrf() ?>
                     <input type="hidden" name="accion" value="pagar_producto">
-                    <input type="hidden" name="clave_unica" value="<?= e(pago_generar_clave(['usuario' => (string)($usuario['id'] ?? ''), 'accion' => 'pagar_producto', 'sesion' => session_id()])) ?>">
+                    <input type="hidden" name="clave_unica" value="<?= e(pago_generar_clave(['usuario' => (int)($usuario['id'] ?? 0), 'accion' => 'pagar_producto', 'sesion' => session_id()])) ?>">
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold"><i class="bi bi-credit-card me-2 text-primary"></i>Proceder al pago</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -227,7 +316,7 @@ $metodosPago = mp_activos();
                                 <select name="metodo_pago_id" id="metodoPagoSelect" class="form-select" required>
                                     <option value="">Selecciona un método...</option>
                                     <?php foreach ($metodosPago as $mp): ?>
-                                        <option value="<?= $mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
+                                        <option value="<?= (int)$mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                                 <div id="metodoPagoInfo" class="d-none mt-3">

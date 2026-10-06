@@ -5,15 +5,16 @@ requiere_sesion();
 $seccionPortal = 'mensajes';
 $titulo = 'Mensajes con FV Digital';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? ''];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? ''];
 
 /* ---------- Solicitud en contexto (chat?solicitud=ID) ---------- */
 $solicitudCtx = null;
 if (!es_ajax()) {
-    $solId = trim((string)($_GET['solicitud'] ?? ''));
-    if (oid($solId) !== null) {
-        $solicitudCtx = sol_de_usuario($solId, $usuarioId, (string)($usuario['email'] ?? ''));
+    $solId = (int)($_GET['solicitud'] ?? 0);
+    if ($solId > 0) {
+        $sc = $pdo->prepare('SELECT * FROM solicitudes WHERE id = ? AND (usuario_id = ? OR LOWER(email) = LOWER(?))');
+        $sc->execute([$solId, (int)$usuario['id'], $usuario['email']]);
+        $solicitudCtx = $sc->fetch() ?: null;
     }
 }
 
@@ -23,17 +24,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
 
-    $texto = trim((string)($_POST['mensaje'] ?? ''));
+    $texto = trim($_POST['mensaje'] ?? '');
     if ($texto === '') {
         responder(['ok' => false, 'mensaje' => 'Escribe un mensaje antes de enviar.', 'tipo' => 'danger']);
     }
 
-    $r = mp_enviar($usuarioId, 'cliente', mb_substr($texto, 0, 2000));
-    if (!$r['ok']) {
-        responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
-    }
+    $pdo->prepare('INSERT INTO mensajes_portal (usuario_id, remitente, mensaje) VALUES (?, ?, ?)')
+        ->execute([(int)$usuario['id'], 'cliente', mb_substr($texto, 0, 2000)]);
 
-    notificar_admins('mensaje', 'Nuevo mensaje de cliente', ($usuario['nombre'] ?? 'Cliente') . ' envió un mensaje al chat.', url_sitio('admin/mensajes_portal.php?usuario_id=' . $usuarioId));
+    notificar_admins('mensaje', 'Nuevo mensaje de cliente', ($usuario['nombre'] ?? 'Cliente') . ' envió un mensaje al chat.', url_sitio('admin/mensajes_portal.php?usuario_id=' . (int)$usuario['id']));
 
     responder([
         'ok'      => true,
@@ -46,18 +45,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* ---------- Consulta AJAX (lista de mensajes) ---------- */
 if (es_ajax()) {
     // Marcar como leídos los mensajes del negocio (ya los está viendo el cliente)
-    mp_marcar_leidos_negocio($usuarioId);
+    $pdo->prepare("UPDATE mensajes_portal SET leido = 1 WHERE usuario_id = ? AND remitente = 'negocio'")
+        ->execute([(int)$usuario['id']]);
 
+    $stmt = $pdo->prepare('SELECT m.*, u.nombre AS tu_nombre FROM mensajes_portal m LEFT JOIN usuarios u ON u.id = m.usuario_id WHERE m.usuario_id = ? ORDER BY m.creado_en ASC');
+    $stmt->execute([(int)$usuario['id']]);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(
-        ['ok' => true, 'mensajes' => mp_conversacion($usuarioId), 'csrf' => csrf_token()],
-        JSON_UNESCAPED_UNICODE
-    );
+    echo json_encode(['ok' => true, 'mensajes' => $stmt->fetchAll(), 'csrf' => csrf_token()], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 /* Marcamos leídos al cargar la página normalmente */
-mp_marcar_leidos_negocio($usuarioId);
+$pdo->prepare("UPDATE mensajes_portal SET leido = 1 WHERE usuario_id = ? AND remitente = 'negocio'")
+    ->execute([(int)$usuario['id']]);
 
 require_once __DIR__ . '/includes/cabecera.php';
 ?>
@@ -78,7 +78,7 @@ require_once __DIR__ . '/includes/cabecera.php';
 
     <?php if ($solicitudCtx): ?>
         <div class="alert alert-fv-light small py-2 px-3 rounded-0 mb-0 d-flex justify-content-between align-items-center gap-2 border-bottom">
-            <span><i class="bi bi-inbox me-1"></i>Estás preguntando sobre tu solicitud de <b><?= e($solicitudCtx['tipo_servicio']) ?></b> del <?= e(fecha_php($solicitudCtx['creado_en'], 'd/m/Y')) ?>.</span>
+            <span><i class="bi bi-inbox me-1"></i>Estás preguntando sobre tu solicitud de <b><?= e($solicitudCtx['tipo_servicio']) ?></b> del <?= e(date('d/m/Y', strtotime($solicitudCtx['creado_en']))) ?>.</span>
             <a href="chat" class="btn btn-sm btn-outline-fv flex-shrink-0"><i class="bi bi-x-lg"></i></a>
         </div>
     <?php endif; ?>
@@ -95,7 +95,7 @@ require_once __DIR__ . '/includes/cabecera.php';
             <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
             <input type="text" name="mensaje" id="mensajeInput" class="form-control" maxlength="2000"
                    placeholder="Escribe tu mensaje…" autocomplete="off" required aria-label="Mensaje"
-                   value="<?= e($solicitudCtx ? 'Hola, quiero dar seguimiento a mi solicitud de ' . $solicitudCtx['tipo_servicio'] . ' del ' . fecha_php($solicitudCtx['creado_en'], 'd/m/Y') . '. ¿Tienen novedades?' : '') ?>">
+                   value="<?= e($solicitudCtx ? 'Hola, quiero dar seguimiento a mi solicitud de ' . $solicitudCtx['tipo_servicio'] . ' del ' . date('d/m/Y', strtotime($solicitudCtx['creado_en'])) . '. ¿Tienen novedades?' : '') ?>">
             <button type="submit" class="btn btn-fv flex-shrink-0" data-cargando="Enviando…">
                 <i class="bi bi-send me-1"></i>Enviar
             </button>

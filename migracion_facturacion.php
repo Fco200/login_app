@@ -1,16 +1,14 @@
-﻿<?php
+<?php
 /* ============================================================
-   FV DIGITAL - Migración: pagos robustos + facturación (MongoDB)
-   ------------------------------------------------------------
-   En MongoDB no hay ALTER TABLE ni information_schema: el esquema
-   es dinámico. Esta migración deja lo que sí aplica a un almacén de
-   documentos:
-     - índices de pagos (clave única contra duplicados), facturas y
-       del historial de proyectos,
-     - backfill de datos: vincular pagos históricos a su proyecto,
-       calcular total_proyecto desde el presupuesto de la solicitud
-       y recalcular el saldo / liquidación de cada proyecto.
-   Es idempotente y reejecutable. Ejecutar una vez y borrar el archivo.
+   FV DIGITAL - Migración: pagos robustos + facturación
+   Idempotente y reejecutable desde el navegador:
+   - proyectos_inicio: total_proyecto, pagado_total, saldo_restante,
+     estado 'liquidado' en el ENUM.
+   - pagos: proyecto_id, clave_unica (UNIQUE), aplicado, índices y FK.
+   - Tablas nuevas: proyecto_historial (bitácora) y facturas.
+   - Backfill: total desde solicitudes.presupuesto y saldo_restante
+     desde pagos aprobados existentes.
+   Ejecutar una vez; por seguridad borrar el archivo al terminar.
    ============================================================ */
 
 require_once __DIR__ . '/funciones.php';
@@ -18,104 +16,201 @@ require_once __DIR__ . '/funciones.php';
 $errores = [];
 $pasos   = [];
 
+/* ---------- Helpers de inspección (information_schema) ---------- */
+
+function mf_tabla_existe(string $tabla): bool {
+    global $pdo;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?');
+    $st->execute([$tabla]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+function mf_col_existe(string $tabla, string $col): bool {
+    global $pdo;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+    $st->execute([$tabla, $col]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+function mf_idx_existe(string $tabla, string $idx): bool {
+    global $pdo;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.STATISTICS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?');
+    $st->execute([$tabla, $idx]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+function mf_fk_existe(string $tabla, string $fk): bool {
+    global $pdo;
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+                         WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = "FOREIGN KEY"');
+    $st->execute([$tabla, $fk]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+function mf_ejecutar(string $sql, string $etiqueta): void {
+    global $pdo, $errores, $pasos;
+    try {
+        $pdo->exec($sql);
+        $pasos[] = $etiqueta;
+    } catch (PDOException $e) {
+        $errores[] = $etiqueta . ' -> ' . $e->getMessage();
+    }
+}
+
 $confirmado = (($_GET['confirmar'] ?? '') === '1');
 
-/* Crea un índice y registra el paso; los duplicados ya existentes
-   se omiten con sparsePartialFilterExpression cuando aplica. */
-function mf_indice(string $coleccion, array $claves, string $nombre, array $opciones = []): void
-{
-    global $errores, $pasos;
-    try {
-        col($coleccion)->createIndex($claves, ($opciones ?? []) + ['name' => $nombre]);
-        $pasos[] = $coleccion . '/' . $nombre;
-    } catch (\Throwable $e) {
-        $errores[] = $coleccion . '/' . $nombre . ': ' . $e->getMessage();
-    }
+if ($confirmado) {
+/* ============================================================
+   1) proyectos_inicio: columnas de saldo y estado 'liquidado'
+   ============================================================ */
+if (!mf_col_existe('proyectos_inicio', 'total_proyecto')) {
+    mf_ejecutar('ALTER TABLE proyectos_inicio ADD total_proyecto DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER anticipo_minimo', 'proyectos_inicio.total_proyecto');
+}
+if (!mf_col_existe('proyectos_inicio', 'pagado_total')) {
+    mf_ejecutar('ALTER TABLE proyectos_inicio ADD pagado_total DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER total_proyecto', 'proyectos_inicio.pagado_total');
+}
+if (!mf_col_existe('proyectos_inicio', 'saldo_restante')) {
+    mf_ejecutar('ALTER TABLE proyectos_inicio ADD saldo_restante DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER pagado_total', 'proyectos_inicio.saldo_restante');
+}
+/* En MariaDB el ENUM se reemplaza completo (se redefine con 'liquidado'). */
+mf_ejecutar("ALTER TABLE proyectos_inicio
+             MODIFY estado ENUM('documentacion','anticipo_pendiente','en_desarrollo','liquidado','completado')
+             NOT NULL DEFAULT 'documentacion'", 'proyectos_inicio.estado -> liquidado');
+
+/* ============================================================
+   2) pagos: proyecto_id, clave_unica, aplicado, índices y FK
+   ============================================================ */
+if (!mf_col_existe('pagos', 'proyecto_id')) {
+    mf_ejecutar('ALTER TABLE pagos ADD proyecto_id INT NULL AFTER solicitud_id', 'pagos.proyecto_id');
+}
+if (!mf_col_existe('pagos', 'clave_unica')) {
+    mf_ejecutar('ALTER TABLE pagos ADD clave_unica VARCHAR(64) NULL AFTER comprobante', 'pagos.clave_unica');
+}
+if (!mf_col_existe('pagos', 'aplicado')) {
+    mf_ejecutar('ALTER TABLE pagos ADD aplicado TINYINT(1) NOT NULL DEFAULT 0 AFTER estado', 'pagos.aplicado');
+}
+if (!mf_idx_existe('pagos', 'uk_pagos_clave')) {
+    mf_ejecutar('ALTER TABLE pagos ADD UNIQUE KEY uk_pagos_clave (clave_unica)', 'pagos.clave_unica UNIQUE');
+}
+if (!mf_idx_existe('pagos', 'idx_pagos_usuario')) {
+    mf_ejecutar('ALTER TABLE pagos ADD KEY idx_pagos_usuario (usuario_id)', 'pagos índice usuario');
+}
+if (!mf_idx_existe('pagos', 'idx_pagos_proyecto')) {
+    mf_ejecutar('ALTER TABLE pagos ADD KEY idx_pagos_proyecto (proyecto_id)', 'pagos índice proyecto');
+}
+if (!mf_idx_existe('pagos', 'idx_pagos_estado')) {
+    mf_ejecutar('ALTER TABLE pagos ADD KEY idx_pagos_estado (estado)', 'pagos índice estado');
+}
+if (!mf_fk_existe('pagos', 'fk_pagos_proyecto')) {
+    mf_ejecutar('ALTER TABLE pagos ADD CONSTRAINT fk_pagos_proyecto
+                 FOREIGN KEY (proyecto_id) REFERENCES proyectos_inicio(id) ON DELETE SET NULL', 'pagos FK proyecto_id');
 }
 
-if ($confirmado) {
-    /* ============================================================
-       1) Índices de pagos: clave única, proyecto, estado y usuario
-       ============================================================ */
-    mf_indice('pagos', ['clave_unica' => 1], 'ux_pagos_clave', [
-        'unique' => true,
-        /* Los pagos sin clave (ventas oldies) no deben bloquear el índice. */
-        'partialFilterExpression' => ['clave_unica' => ['$type' => 'string', '$ne' => '']],
-    ]);
-    mf_indice('pagos', ['proyecto_id' => 1], 'ix_pagos_proyecto');
-    mf_indice('pagos', ['estado' => 1], 'ix_pagos_estado');
-    mf_indice('pagos', ['usuario_id' => 1, 'creado_en' => -1], 'ix_pagos_usuario');
+/* ============================================================
+   3) Tabla nueva: proyecto_historial (bitácora de proyectos)
+   ============================================================ */
+if (!mf_tabla_existe('proyecto_historial')) {
+    mf_ejecutar("CREATE TABLE proyecto_historial (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        proyecto_id INT NOT NULL,
+        usuario_id INT NULL,
+        accion VARCHAR(60) NOT NULL,
+        detalle TEXT,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_hist_proyecto (proyecto_id, creado_en),
+        CONSTRAINT fk_hist_proyecto FOREIGN KEY (proyecto_id) REFERENCES proyectos_inicio(id) ON DELETE CASCADE,
+        CONSTRAINT fk_hist_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci", 'tabla proyecto_historial');
+}
 
-    /* ============================================================
-       2) Índices de facturas
-       ============================================================ */
-    mf_indice('facturas', ['folio' => 1], 'ux_facturas_folio', ['unique' => true]);
-    mf_indice('facturas', ['proyecto_id' => 1, 'creado_en' => -1], 'ix_facturas_proyecto');
-    mf_indice('facturas', ['usuario_id' => 1, 'creado_en' => -1], 'ix_facturas_usuario');
-    mf_indice('facturas', ['estado' => 1], 'ix_facturas_estado');
+/* ============================================================
+   4) Tabla nueva: facturas
+   ============================================================ */
+if (!mf_tabla_existe('facturas')) {
+    mf_ejecutar("CREATE TABLE facturas (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        folio VARCHAR(20) NOT NULL UNIQUE,
+        proyecto_id INT NOT NULL,
+        usuario_id INT NOT NULL,
+        concepto VARCHAR(255) NOT NULL,
+        rfq_cliente VARCHAR(20) NULL,
+        subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+        iva DECIMAL(12,2) NOT NULL DEFAULT 0,
+        total DECIMAL(12,2) NOT NULL DEFAULT 0,
+        pagos_json TEXT,
+        estado ENUM('emitida','cancelada') DEFAULT 'emitida',
+        emitida_por VARCHAR(100) NULL,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_fact_proyecto (proyecto_id),
+        KEY idx_fact_usuario (usuario_id),
+        CONSTRAINT fk_fact_proyecto FOREIGN KEY (proyecto_id) REFERENCES proyectos_inicio(id) ON DELETE CASCADE,
+        CONSTRAINT fk_fact_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci", 'tabla facturas');
+}
 
-    /* ============================================================
-       3) Índices de la bitácora de proyectos
-       ============================================================ */
-    mf_indice('proyecto_historial', ['proyecto_id' => 1, 'creado_en' => -1], 'ix_hist_proyecto');
-    mf_indice('proyecto_historial', ['accion' => 1], 'ix_hist_accion');
+/* ============================================================
+   5) datos fiscales opcionales en usuarios (RFC / dirección)
+   ============================================================ */
+if (mf_tabla_existe('usuarios') && !mf_col_existe('usuarios', 'rfc')) {
+    mf_ejecutar('ALTER TABLE usuarios ADD rfc VARCHAR(20) NULL AFTER telefono', 'usuarios.rfc');
+}
+if (mf_tabla_existe('usuarios') && !mf_col_existe('usuarios', 'direccion')) {
+    mf_ejecutar('ALTER TABLE usuarios ADD direccion VARCHAR(255) NULL AFTER rfc', 'usuarios.direccion');
+}
 
-    /* ============================================================
-       4) Backfill idempotente de datos
-       ============================================================ */
+/* ============================================================
+   6) Backfill idempotente (DATOS)
+   ============================================================ */
+if (mf_tabla_existe('proyectos_inicio')) {
+    /* 6a) Vincular pagos históricos a su proyecto por solicitud_id. */
     try {
-        $proyectos = col_q('proyectos_inicio');
-        $sols      = sol_por_ids(array_map(static fn($p) => (string)($p['solicitud_id'] ?? ''), $proyectos));
+        $pdo->exec("UPDATE pagos p
+                    JOIN proyectos_inicio pi ON pi.solicitud_id = p.solicitud_id AND pi.usuario_id = p.usuario_id
+                    SET p.proyecto_id = pi.id
+                    WHERE p.proyecto_id IS NULL AND p.tipo_pago IN ('anticipo','restante','completo')");
+        $pasos[] = 'pagos históricos vinculados por solicitud_id';
+    } catch (PDOException $e) {
+        $errores[] = 'vincular pagos históricos -> ' . $e->getMessage();
+    }
 
-        $presupuestos = [];
-        foreach ($proyectos as $p) {
-            $clave = (string)oid($p['solicitud_id'] ?? null);
-            $presupuestos[(string)$p['id']] = $sols[$clave]['presupuesto'] ?? null;
-        }
-
-        /* 4a) Vincular pagos históricos a su proyecto por solicitud_id. */
-$vinculados = 0;
-        foreach ($proyectos as $p) {
-            $sol_id = oid($p['solicitud_id'] ?? null);
-            $usr_id = oid($p['usuario_id'] ?? null);
-            if ($sol_id === null || $usr_id === null) {
-                continue;
-            }
-            $filtro = [
-                'proyecto_id'  => null,
-                'solicitud_id' => $sol_id,
-                'usuario_id'   => $usr_id,
-                'tipo_pago'    => ['$in' => ['anticipo', 'restante', 'completo']],
-            ];
-            $vinculados += col_actualizar_varios('pagos', $filtro, ['$set' => ['proyecto_id' => oid($p['id'])]]);
-        }
-        $pasos[] = 'pagos históricos vinculados por solicitud_id: ' . $vinculados;
-
-        /* 4b) Definir total_proyecto a partir de solicitudes.presupuesto. */
-        $conTotal = 0;
-        foreach ($proyectos as $p) {
-            if ((float)($p['total_proyecto'] ?? 0) > 0) {
+    /* 6b) Definir total_proyecto a partir de solicitudes.presupuesto. */
+    try {
+        $rows = $pdo->query('SELECT pi.id, pi.total_proyecto, s.presupuesto
+                             FROM proyectos_inicio pi
+                             LEFT JOIN solicitudes s ON pi.solicitud_id = s.id')->fetchAll();
+        $upd = $pdo->prepare('UPDATE proyectos_inicio SET total_proyecto = ? WHERE id = ?');
+        foreach ($rows as $r) {
+            if ((float)$r['total_proyecto'] > 0) {
                 continue; // ya tiene valor definido
             }
-            $total = proyecto_total_parsear($presupuestos[(string)$p['id']] ?? null);
+            $total = proyecto_total_parsear($r['presupuesto']);
             if ($total > 0) {
-                col_actualizar('proyectos_inicio', $p['id'], ['$set' => ['total_proyecto' => $total]]);
-                $conTotal++;
+                $upd->execute([$total, (int)$r['id']]);
             }
         }
-        $pasos[] = 'total_proyecto calculado desde presupuesto: ' . $conTotal;
+        $pasos[] = 'total_proyecto calculado desde presupuesto';
+    } catch (PDOException $e) {
+        $errores[] = 'backfill total_proyecto -> ' . $e->getMessage();
+    }
 
-        /* 4c) Recalcular el saldo de todos los proyectos (aprobados existentes). */
-        col_borrar_varios('proyecto_historial', ['accion' => 'migracion_saldo']);
-        foreach ($proyectos as $p) {
-            proyecto_recalcular_saldo($p['id']);
-            registrar_historial_proyecto($p['id'], 'migracion_saldo', 'Saldo financiero recalculado por la migración de pagos y facturación.');
+    /* 6c) Recalcular saldo de todos los proyectos (aprobados existentes). */
+    try {
+        if (mf_tabla_existe('proyecto_historial')) {
+            $pdo->exec('DELETE FROM proyecto_historial WHERE accion = "migracion_saldo"');
         }
-        $pasos[] = 'saldo_restante / liquidación recalculados: ' . count($proyectos);
-} catch (\Throwable $e) {
-        $errores[] = 'backfill: ' . $e->getMessage();
+        foreach ($pdo->query('SELECT id FROM proyectos_inicio') as $r) {
+            proyecto_recalcular_saldo((int)$r['id']);
+            registrar_historial_proyecto((int)$r['id'], 'migracion_saldo', 'Saldo financiero recalculado por la migración de pagos y facturación.');
+        }
+        $pasos[] = 'saldo_restante / liquidación recalculados';
+    } catch (Throwable $e) {
+        $errores[] = 'backfill saldo_restante -> ' . $e->getMessage();
     }
 }
+} /* fin: solo se ejecuta con ?confirmar=1 */
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -138,10 +233,9 @@ $vinculados = 0;
     <?php elseif (empty($errores)): ?>
         <div class="alert alert-success">Migración ejecutada correctamente.</div>
         <ul class="small text-muted mb-3">
-            <li>pagos: índice único de <b>clave_unica</b> (parcial, ignora pagos sin clave) e índices de proyecto, estado y usuario.</li>
-            <li>facturas: folio único e índices por proyecto, usuario y estado.</li>
-            <li>proyecto_historial: índices por proyecto y acción.</li>
-            <li>Datos: pagos vinculados a su proyecto, total_proyecto desde el presupuesto y saldos recalculados.</li>
+            <li>proyectos_inicio: total_proyecto, pagado_total, saldo_restante y estado "liquidado".</li>
+            <li>pagos: proyecto_id, clave_unica (única contra duplicados) y aplicado.</li>
+            <li>Tablas nuevas: proyecto_historial y facturas.</li>
         </ul>
         <div class="alert alert-light border small mb-3">
             <b><i class="bi bi-list-check me-1"></i>Pasos aplicados:</b>

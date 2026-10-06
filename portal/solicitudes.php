@@ -4,75 +4,84 @@ require_once __DIR__ . '/includes/cabecera.php';
 $seccionPortal = 'solicitudes';
 $titulo = 'Mis solicitudes';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'email' => '', 'nombre' => $_SESSION['nombre'] ?? 'Cliente'];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'email' => '', 'nombre' => $_SESSION['nombre'] ?? 'Cliente'];
 
 /* ---------- Manejar POST: iniciar proyecto ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'iniciar_proyecto') {
-        $solicitudId = trim((string)($_POST['solicitud_id'] ?? ''));
-        if (oid($solicitudId) === null) {
-            responder(['ok' => false, 'mensaje' => 'Datos inválidos.', 'tipo' => 'danger']);
-        }
-        $solChk = sol_de_usuario($solicitudId, $usuarioId, (string)$usuario['email']);
-        if (!$solChk || ($solChk['estado'] ?? '') !== 'completada') {
-            responder(['ok' => false, 'mensaje' => 'Solicitud no válida.', 'tipo' => 'danger']);
-        }
-        if (proy_por_solicitud($solicitudId, $usuarioId) !== null) {
-            responder(['ok' => false, 'mensaje' => 'Ya iniciaste el proyecto para esta solicitud.', 'tipo' => 'warning']);
-        }
+        $solicitudId = (int)($_POST['solicitud_id'] ?? 0);
+        if ($solicitudId > 0) {
+            $stmtChk = $pdo->prepare('SELECT id, estado, usuario_id, presupuesto FROM solicitudes WHERE id = ? AND (usuario_id = ? OR LOWER(email) = LOWER(?))');
+            $stmtChk->execute([$solicitudId, (int)$usuario['id'], $usuario['email']]);
+            $solChk = $stmtChk->fetch();
 
-        /* Total del proyecto desde el presupuesto de la solicitud. */
-        $totalProyecto = proyecto_total_parsear($solChk['presupuesto'] ?? '');
-        $r = proy_crear([
-            'solicitud_id'        => $solicitudId,
-            'usuario_id'          => $usuarioId,
-            'descripcion_proyecto' => trim((string)($_POST['descripcion_proyecto'] ?? '')),
-            'requisitos'          => trim((string)($_POST['requisitos'] ?? '')),
-            'objetivos'           => trim((string)($_POST['objetivos'] ?? '')),
-            'alcance'             => trim((string)($_POST['alcance'] ?? '')),
-            'cronograma'          => trim((string)($_POST['cronograma'] ?? '')),
-            'entregables'         => trim((string)($_POST['entregables'] ?? '')),
-            'total_proyecto'      => $totalProyecto,
-        ]);
-        if (!$r['ok']) {
-            responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
+            if ($solChk && $solChk['estado'] === 'completada') {
+                $existeProj = $pdo->prepare('SELECT id FROM proyectos_inicio WHERE solicitud_id = ? AND usuario_id = ?');
+                $existeProj->execute([$solicitudId, (int)$usuario['id']]);
+                if (!$existeProj->fetch()) {
+                    /* Total del proyecto desde el presupuesto de la solicitud. */
+                    $totalProyecto = proyecto_total_parsear($solChk['presupuesto'] ?? '');
+                    $pdo->prepare('INSERT INTO proyectos_inicio (solicitud_id, usuario_id, descripcion_proyecto, requisitos, objetivos, alcance, cronograma, entregables, total_proyecto, saldo_restante) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                        ->execute([
+                            $solicitudId,
+                            (int)$usuario['id'],
+                            trim($_POST['descripcion_proyecto'] ?? ''),
+                            trim($_POST['requisitos'] ?? ''),
+                            trim($_POST['objetivos'] ?? ''),
+                            trim($_POST['alcance'] ?? ''),
+                            trim($_POST['cronograma'] ?? ''),
+                            trim($_POST['entregables'] ?? ''),
+                            $totalProyecto > 0 ? $totalProyecto : 0,
+                            $totalProyecto > 0 ? $totalProyecto : 0,
+                        ]);
+                    notificar_admins('proyecto', 'Documentación de proyecto recibida', $usuario['nombre'] . ' inició la documentación para la solicitud #' . $solicitudId . '.', url_sitio('admin/solicitudes.php'));
+                    responder(['ok' => true, 'mensaje' => 'Documentación del proyecto enviada correctamente. Ahora realiza el anticipo para iniciar.', 'tipo' => 'success', 'destino' => url_sitio('portal/solicitudes.php')]);
+                } else {
+                    responder(['ok' => false, 'mensaje' => 'Ya iniciaste el proyecto para esta solicitud.', 'tipo' => 'warning']);
+                }
+            } else {
+                responder(['ok' => false, 'mensaje' => 'Solicitud no válida.', 'tipo' => 'danger']);
+            }
         }
-
-        sol_registrar_historial($solicitudId, 'completada', 'El cliente inició la documentación del proyecto.');
-        notificar_admins('proyecto', 'Documentación de proyecto recibida', ($usuario['nombre'] ?? 'El cliente') . ' inició la documentación para la solicitud ' . (string)$solChk['id'] . '.', url_sitio('admin/solicitudes.php'));
-        responder(['ok' => true, 'mensaje' => 'Documentación del proyecto enviada correctamente. Ahora realiza el anticipo para iniciar.', 'tipo' => 'success', 'destino' => url_sitio('portal/solicitudes.php')]);
+        responder(['ok' => false, 'mensaje' => 'Datos inválidos.', 'tipo' => 'danger']);
     }
 
     if ($accion === 'pagar_anticipo') {
-        $proyectoId = trim((string)($_POST['proyecto_id'] ?? ''));
+        $proyectoId = (int)($_POST['proyecto_id'] ?? 0);
         $monto = (float)($_POST['monto'] ?? 0);
-        $metodoId = trim((string)($_POST['metodo_pago_id'] ?? ''));
-        if (oid($proyectoId) === null || $monto <= 0) {
+        $metodoId = (int)($_POST['metodo_pago_id'] ?? 0);
+        if ($proyectoId <= 0 || $monto <= 0) {
             responder(['ok' => false, 'mensaje' => 'Datos inválidos.', 'tipo' => 'danger']);
         }
-        if (col_q1('proyectos_inicio', ['_id' => oid($proyectoId), 'usuario_id' => oid($usuarioId)]) === null) {
+        $stmtProj = $pdo->prepare('SELECT id, estado FROM proyectos_inicio WHERE id = ? AND usuario_id = ?');
+        $stmtProj->execute([$proyectoId, (int)$usuario['id']]);
+        if (!$stmtProj->fetch()) {
             responder(['ok' => false, 'mensaje' => 'El proyecto no existe o no te pertenece.', 'tipo' => 'danger']);
         }
         if (empty($_FILES['comprobante']['name']) || $_FILES['comprobante']['error'] !== UPLOAD_ERR_OK) {
             responder(['ok' => false, 'mensaje' => 'Es obligatorio subir el comprobante de pago del anticipo.', 'tipo' => 'warning']);
         }
-        $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
-        if (!$res['ok']) {
-            responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
+        $comprobanteRuta = null;
+        if (!empty($_FILES['comprobante']['name'])) {
+            $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
+            if ($res['ok']) {
+                $comprobanteRuta = $res['archivo'];
+            } else {
+                responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
+            }
         }
-        /* Registro central con idempotencia y bitácora. */
+        /* Registro central con transacción, idempotencia y bitácora. */
         $r = pago_registrar([
-            'usuario_id'     => $usuarioId,
+            'usuario_id'     => (int)$usuario['id'],
             'proyecto_id'    => $proyectoId,
             'tipo_pago'      => 'anticipo',
             'monto'          => $monto,
             'metodo_pago_id' => $metodoId,
-            'comprobante'    => $res['archivo'],
+            'comprobante'    => $comprobanteRuta,
             'clave_unica'    => trim((string)($_POST['clave_unica'] ?? '')),
-            'notas'          => 'Anticipo para proyecto ' . $proyectoId,
+            'notas'          => 'Anticipo para proyecto #' . $proyectoId,
         ]);
         if ($r['ok']) {
             responder([
@@ -88,7 +97,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
     }
 }
 
-$solicitudes = sol_de_cliente($usuarioId, (string)$usuario['email']);
+$stmt = $pdo->prepare('SELECT * FROM solicitudes WHERE usuario_id = ? OR LOWER(email) = LOWER(?) ORDER BY creado_en DESC');
+$stmt->execute([(int)$usuario['id'], $usuario['email']]);
+$solicitudes = $stmt->fetchAll();
 
 $estados = [
     'nueva'       => ['badge text-bg-danger', 'bi-file-earmark-plus', 'Nueva'],
@@ -104,27 +115,27 @@ $pasosProceso = [
     'completada' => ['Completada',    'bg-success text-white'],
 ];
 
-/* Proyectos iniciados por el usuario, indexados por solicitud.
-   Se enrichingue con el presupuesto de la solicitud de origen. */
+/* Proyectos iniciados por el usuario */
 $proyectosMap = [];
-$presupuestosSol = [];
-foreach ($solicitudes as $s) {
-    $presupuestosSol[(string)$s['id']] = $s['presupuesto'] ?? '';
-}
-foreach (proy_de_usuario($usuarioId) as $p) {
-    if (!empty($p['solicitud_id'])) {
-        $clave = (string)$p['solicitud_id'];
-        $proyectosMap[$clave] = $p + ['presupuesto' => $presupuestosSol[$clave] ?? ''];
-    }
+$stmtProj = $pdo->prepare('SELECT pi.*, s.presupuesto FROM proyectos_inicio pi LEFT JOIN solicitudes s ON pi.solicitud_id = s.id WHERE pi.usuario_id = ?');
+$stmtProj->execute([(int)$usuario['id']]);
+foreach ($stmtProj->fetchAll() as $p) {
+    $proyectosMap[(int)$p['solicitud_id']] = $p;
 }
 
 /* Métodos de pago activos */
-$metodosPago = mp_activos();
+$metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY nombre ASC')->fetchAll();
 
 /* Historial por solicitud */
-$historiales = empty($solicitudes)
-    ? []
-    : sol_historiales(array_map(static fn($s) => (string)$s['id'], $solicitudes));
+$historiales = [];
+if ($solicitudes) {
+    $ids = array_map(fn($s) => (int)$s['id'], $solicitudes);
+    $in = implode(',', $ids);
+    $stmtH = $pdo->query("SELECT * FROM solicitud_historial WHERE solicitud_id IN ($in) ORDER BY creado_en ASC");
+    foreach ($stmtH as $h) {
+        $historiales[(int)$h['solicitud_id']][] = $h;
+    }
+}
 ?>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
@@ -151,12 +162,12 @@ $historiales = empty($solicitudes)
     </div>
 <?php else: ?>
     <div class="row g-3">
-        <?php foreach ($solicitudes as $s): [$bg, $ic, $txt] = $estado($s); $h = $historiales[$s['id']] ?? [];
+        <?php foreach ($solicitudes as $s): [$bg, $ic, $txt] = $estado($s); $h = $historiales[(int)$s['id']] ?? [];
             $reuso = $s['tipo_solicitud'] ?? 'individual';
             $rutaReuso = $reuso === 'empresa' ? 'nueva-solicitud-empresa' : 'nueva-solicitud';
-            $proj = $proyectosMap[$s['id']] ?? null; ?>
+            $proj = $proyectosMap[(int)$s['id']] ?? null; ?>
             <div class="col-12">
-                <div class="card portal-card border-0 shadow-sm" id="sol-<?= $s['id'] ?>">
+                <div class="card portal-card border-0 shadow-sm" id="sol-<?= (int)$s['id'] ?>">
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <div>
@@ -170,7 +181,7 @@ $historiales = empty($solicitudes)
                                     <?php if (($s['tipo_solicitud'] ?? '') === 'empresa' && $s['empresa']): ?>
                                         <i class="bi bi-briefcase me-1"></i><?= e($s['empresa']) ?><?= $s['cargo'] ? ' · ' . e($s['cargo']) : '' ?> ·
                                     <?php endif; ?>
-                                    <i class="bi bi-calendar3 me-1"></i><?= e(fecha_php($s['creado_en'], 'd/m/Y H:i')) ?>
+                                    <i class="bi bi-calendar3 me-1"></i><?= e(date('d/m/Y H:i', strtotime($s['creado_en']))) ?>
                                 </small>
                             </div>
                             <span class="<?= $bg ?>"><i class="bi <?= $ic ?> me-1"></i><?= $txt ?></span>
@@ -198,7 +209,7 @@ $historiales = empty($solicitudes)
                                         <div class="hito-cuerpo">
                                             <b><?= e(ucfirst(str_replace('_', ' ', $hito['estado']))) ?></b>
                                             <?php if ($hito['nota']): ?><span class="d-block small text-muted"><?= e($hito['nota']) ?></span><?php endif; ?>
-                                            <small class="text-muted"><?= e(fecha_php($hito['creado_en'], 'd/m/Y H:i')) ?></small>
+                                            <small class="text-muted"><?= e(date('d/m/Y H:i', strtotime($hito['creado_en']))) ?></small>
                                         </div>
                                     </div>
                                 <?php endforeach; ?>
@@ -236,8 +247,8 @@ $historiales = empty($solicitudes)
                         <?php endif; ?>
 
                         <div class="d-flex flex-wrap gap-2">
-                            <a href="<?= $rutaReuso ?>?reutilizar=<?= $s['id'] ?>" class="btn btn-sm btn-outline-fv" title="Copia los datos de esta solicitud para enviarla de nuevo"><i class="bi bi-arrow-repeat me-1"></i>Reutilizar</a>
-                            <a href="chat?solicitud=<?= $s['id'] ?>" class="btn btn-sm btn-outline-success"><i class="bi bi-chat-dots me-1"></i>Chat sobre esta solicitud</a>
+                            <a href="<?= $rutaReuso ?>?reutilizar=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-fv" title="Copia los datos de esta solicitud para enviarla de nuevo"><i class="bi bi-arrow-repeat me-1"></i>Reutilizar</a>
+                            <a href="chat?solicitud=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-success"><i class="bi bi-chat-dots me-1"></i>Chat sobre esta solicitud</a>
                             <?php if (in_array($s['estado'], ['nueva', 'en_proceso'], true)): ?>
                                 <a href="juegos" class="btn btn-sm btn-outline-fv"><i class="bi bi-controller me-1"></i>Juega mientras esperamos</a>
                             <?php endif; ?>
@@ -284,7 +295,7 @@ $historiales = empty($solicitudes)
                                             </div>
                                             <?php if ($mostrarPago): ?>
                                                 <!-- Botón para pagar anticipo -->
-                                                <button class="btn btn-sm btn-fv" data-bs-toggle="modal" data-bs-target="#modalAnticipo<?= $s['id'] ?>"><i class="bi bi-credit-card me-1"></i><?= $proj['estado'] === 'documentacion' ? 'Pagar anticipo para iniciar' : 'Pagar anticipo' ?></button>
+                                                <button class="btn btn-sm btn-fv" data-bs-toggle="modal" data-bs-target="#modalAnticipo<?= (int)$s['id'] ?>"><i class="bi bi-credit-card me-1"></i><?= $proj['estado'] === 'documentacion' ? 'Pagar anticipo para iniciar' : 'Pagar anticipo' ?></button>
                                             <?php elseif (in_array($proj['estado'], ['en_desarrollo', 'completado'], true)): ?>
                                                 <a href="procesos" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i>Ver progreso del proyecto</a>
                                             <?php endif; ?>
@@ -294,14 +305,14 @@ $historiales = empty($solicitudes)
 
                                 <!-- Modal de anticipo -->
                                 <?php if ($mostrarPago): ?>
-                                <div class="modal fade" id="modalAnticipo<?= $s['id'] ?>" tabindex="-1" aria-hidden="true">
+                                <div class="modal fade" id="modalAnticipo<?= (int)$s['id'] ?>" tabindex="-1" aria-hidden="true">
                                     <div class="modal-dialog">
                                         <div class="modal-content">
                                             <form method="POST" class="js-ajax" action="solicitudes.php" enctype="multipart/form-data">
                                                 <?= campo_csrf() ?>
                                                 <input type="hidden" name="accion" value="pagar_anticipo">
-                                                <input type="hidden" name="proyecto_id" value="<?= $proj['id'] ?>">
-                                                <input type="hidden" name="clave_unica" value="<?= e(pago_generar_clave(['proyecto' => $proj['id'], 'usuario' => $usuarioId, 'accion' => 'pagar_anticipo', 's' => session_id()])) ?>">
+                                                <input type="hidden" name="proyecto_id" value="<?= (int)$proj['id'] ?>">
+                                                <input type="hidden" name="clave_unica" value="<?= e(pago_generar_clave(['proyecto' => (int)$proj['id'], 'usuario' => (int)$usuario['id'], 'accion' => 'pagar_anticipo', 's' => session_id()])) ?>">
                                                 <div class="modal-header">
                                                     <h5 class="modal-title fw-bold"><i class="bi bi-credit-card me-2 text-primary"></i>Pago de anticipo</h5>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -317,14 +328,14 @@ $historiales = empty($solicitudes)
                                                         <div class="col-12">
                                                             <label class="form-label small fw-semibold">Monto del anticipo (mínimo $2,500 MXN)</label>
                                                             <input type="number" name="monto" class="form-control" min="<?= (float)$proj['anticipo_minimo'] ?>" step="0.01" value="<?= (float)$proj['anticipo_minimo'] ?>" required>
-                                                            <small class="text-muted">Saldo restante después del anticipo: $<?= number_format(max(0.0, (float)($proj['total_proyecto'] ?: proyecto_total_parsear($proj['presupuesto'] ?? '')) - (float)$proj['anticipo_minimo']), 0) ?> MXN (aprox.)</small>
+                                                            <small class="text-muted">Saldo restante después del anticipo: $<?= number_format(max(0, ((float)($proj['presupuesto'] ?? 5000)) - (float)$proj['anticipo_minimo']), 0) ?> MXN (aprox.)</small>
                                                         </div>
                                                         <div class="col-12">
                                                             <label class="form-label small fw-semibold">Método de pago</label>
                                                             <select name="metodo_pago_id" class="form-select metodo-pago-anticipo" required>
                                                                 <option value="">Selecciona un método...</option>
                                                                 <?php foreach ($metodosPago as $mp): ?>
-                                                                    <option value="<?= $mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
+                                                                    <option value="<?= (int)$mp['id'] ?>" data-nombre="<?= e($mp['nombre']) ?>" data-descripcion="<?= e($mp['descripcion'] ?? '') ?>" data-detalles="<?= e($mp['detalles_cuenta'] ?? '') ?>" data-instrucciones="<?= e($mp['instrucciones'] ?? '') ?>" data-icono="<?= e($mp['icono'] ?? 'bi-credit-card') ?>"><?= e($mp['nombre']) ?></option>
                                                                 <?php endforeach; ?>
                                                             </select>
                                                             <div class="metodo-info-anticipo d-none mt-2">
@@ -355,17 +366,17 @@ $historiales = empty($solicitudes)
                             <?php else: ?>
                                 <!-- No hay proyecto: botón para iniciar -->
                                 <div class="mt-3">
-                                    <button class="btn btn-fv btn-sm" data-bs-toggle="modal" data-bs-target="#modalIniciar<?= $s['id'] ?>"><i class="bi bi-rocket-takeoff me-1"></i>Iniciar Proyecto</button>
+                                    <button class="btn btn-fv btn-sm" data-bs-toggle="modal" data-bs-target="#modalIniciar<?= (int)$s['id'] ?>"><i class="bi bi-rocket-takeoff me-1"></i>Iniciar Proyecto</button>
                                 </div>
 
                                 <!-- Modal para iniciar proyecto -->
-                                <div class="modal fade" id="modalIniciar<?= $s['id'] ?>" tabindex="-1" aria-hidden="true">
+                                <div class="modal fade" id="modalIniciar<?= (int)$s['id'] ?>" tabindex="-1" aria-hidden="true">
                                     <div class="modal-dialog modal-lg">
                                         <div class="modal-content">
                                             <form method="POST" class="js-ajax" action="solicitudes.php">
                                                 <?= campo_csrf() ?>
                                                 <input type="hidden" name="accion" value="iniciar_proyecto">
-                                                <input type="hidden" name="solicitud_id" value="<?= $s['id'] ?>">
+                                                <input type="hidden" name="solicitud_id" value="<?= (int)$s['id'] ?>">
                                                 <div class="modal-header">
                                                     <h5 class="modal-title fw-bold"><i class="bi bi-rocket-takeoff me-2 text-primary"></i>Iniciar Proyecto</h5>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>

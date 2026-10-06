@@ -3,11 +3,11 @@ require_once __DIR__ . '/funciones.php';
 $seccion = 'inicio';
 $titulo = SITE_NOMBRE . ' — ' . SITE_ESLOGAN;
 
-$servicios = srv_activos(4);
-$proyectos = pro_activos(3);
-$testimonios = tes_activos(4);
-$publicaciones = pub_activos(3);
-$totalProyectos = pro_contar_activos();
+$servicios = $pdo->query("SELECT * FROM servicios WHERE activo = 1 ORDER BY destaque DESC, id ASC LIMIT 4")->fetchAll();
+$proyectos = $pdo->query("SELECT * FROM proyectos WHERE activo = 1 ORDER BY destaque DESC, creado_en DESC LIMIT 3")->fetchAll();
+$testimonios = $pdo->query("SELECT * FROM testimonios WHERE activo = 1 ORDER BY id DESC LIMIT 4")->fetchAll();
+$publicaciones = $pdo->query("SELECT * FROM publicaciones WHERE activo = 1 ORDER BY creado_en DESC LIMIT 3")->fetchAll();
+$totalProyectos = (int)$pdo->query("SELECT COUNT(*) FROM proyectos WHERE activo = 1")->fetchColumn();
 
 require_once 'includes/cabecera.php';
 ?>

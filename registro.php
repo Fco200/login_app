@@ -1,7 +1,4 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
 require_once __DIR__ . '/funciones.php';
 iniciar_sesion_segura();
 retorno_guardar();
@@ -39,24 +36,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($password !== $confirmar) {
             $error = 'Las contraseñas no coinciden.';
         } else {
-            $nuevo = usr_crear([
-                'nombre'   => $valores['nombre'],
-                'email'    => $email,
-                'telefono' => $valores['telefono'],
-                'password' => $password,
-                'rol'      => 'cliente',
-            ]);
-            if (!$nuevo['ok']) {
-                $error = $nuevo['mensaje'];
-            } else {
-                login_ok([
-                    'id'     => $nuevo['id'],
+            try {
+                $pdo->prepare('INSERT INTO usuarios (nombre, email, telefono, password, rol, activo) VALUES (?, ?, ?, ?, ?, 1)')
+                    ->execute([$valores['nombre'], $email, $valores['telefono'], password_hash($password, PASSWORD_BCRYPT), 'cliente']);
+                $nuevo = [
+                    'id'     => (int)$pdo->lastInsertId(),
                     'nombre' => $valores['nombre'],
                     'rol'    => 'cliente',
-                ]);
+                ];
+                login_ok($nuevo);
                 flash('¡Cuenta creada! Bienvenido a tu portal de FV Digital.');
                 header('Location: ' . retorno_usar('portal/index.php'));
                 exit;
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23000') {
+                    $error = 'Ese correo ya está registrado. Intenta iniciar sesión.';
+                } else {
+                    $error = 'No se pudo crear la cuenta. Intenta de nuevo.';
+                }
             }
         }
     }

@@ -16,8 +16,7 @@ require_once 'includes/cabecera.php';
 <section class="seccion">
     <div class="container">
         <div class="row g-4">
-            <?php $servicios = srv_activos(); ?>
-            <?php foreach ($servicios as $s): ?>
+            <?php foreach ($pdo->query("SELECT * FROM servicios WHERE activo = 1 ORDER BY destaque DESC, id ASC") as $s): ?>
                 <div class="col-md-6 col-lg-3 animar">
                     <div class="card-fv p-4 h-100 d-flex flex-column">
                         <div class="icono-caja <?= $s['destaque'] ? 'destacado' : '' ?> mb-3"><i class="bi <?= e($s['icono']) ?>"></i></div>
@@ -32,7 +31,7 @@ require_once 'includes/cabecera.php';
                         <div class="d-grid gap-2 mt-auto">
                             <a href="solicitud.php?servicio=<?= e($s['slug']) ?>" class="btn btn-fv w-100">Solicitar este servicio</a>
                             <?php if ((float)($s['precio_desde'] ?? 0) > 0): ?>
-                                <?= form_agregar_carrito($s['id'], 'servicio', $s['titulo']) ?>
+                                <?= form_agregar_carrito((int)$s['id'], 'servicio', $s['titulo']) ?>
                             <?php endif; ?>
                         </div>
                     </div>

@@ -1,20 +1,22 @@
 <?php
-
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
 require_once __DIR__ . '/includes/cabecera.php';
 
 $seccionPortal = 'inicio';
 $titulo = 'Panel de cliente';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'nombre' => $_SESSION['nombre'] ?? '', 'email' => ''];
 
-$solicitudes = sol_de_cliente($usuarioId, (string)$usuario['email'], 20);
-$mensajes = mp_conversacion($usuarioId);
-$notificaciones = notif_de_usuario($usuarioId, 5);
+$stmt = $pdo->prepare('SELECT * FROM solicitudes WHERE usuario_id = ? OR email = ? ORDER BY creado_en DESC LIMIT 20');
+$stmt->execute([(int)$usuario['id'], $usuario['email']]);
+$solicitudes = $stmt->fetchAll();
+
+$stmtMsg = $pdo->prepare('SELECT * FROM mensajes_portal WHERE usuario_id = ? ORDER BY creado_en ASC');
+$stmtMsg->execute([(int)$usuario['id']]);
+$mensajes = $stmtMsg->fetchAll();
+
+$stmtNot = $pdo->prepare('SELECT * FROM notificaciones WHERE usuario_id = ? ORDER BY creado_en DESC LIMIT 5');
+$stmtNot->execute([(int)$usuario['id']]);
+$notificaciones = $stmtNot->fetchAll();
 
 $estados = [
     'nueva'       => ['badge text-bg-danger', 'bi-file-earmark-plus', 'Nueva'],
@@ -25,7 +27,7 @@ $estados = [
 $estado = fn($s) => $estados[$s['estado']] ?? ['badge text-bg-light', 'bi-question-circle', ucfirst($s['estado'])];
 
 $enCurso = count(array_filter($solicitudes, fn($s) => in_array($s['estado'], ['nueva', 'en_proceso'], true)));
-$noLeidos = count(array_filter($mensajes, fn($m) => empty($m['leido']) && $m['remitente'] === 'negocio'));
+$noLeidos = count(array_filter($mensajes, fn($m) => (int)$m['leido'] === 0 && $m['remitente'] === 'negocio'));
 $noNot = count($notificaciones);
 ?>
 
@@ -100,8 +102,8 @@ $noNot = count($notificaciones);
                         <tbody>
                             <?php foreach (array_slice($solicitudes, 0, 5) as $s): [$bg, $ic, $txt] = $estado($s); ?>
                                 <tr>
-                                    <td><a class="text-decoration-none" href="mis-solicitudes#sol-<?= $s['id'] ?>"><b><?= e($s['tipo_servicio']) ?></b></a><?= ($s['tipo_solicitud'] ?? '') === 'empresa' ? ' <i class="bi bi-buildings text-primary small"></i>' : '' ?></td>
-                                    <td class="small text-muted"><?= e(fecha_php($s['creado_en'], 'd/m/Y')) ?></td>
+                                    <td><a class="text-decoration-none" href="mis-solicitudes#sol-<?= (int)$s['id'] ?>"><b><?= e($s['tipo_servicio']) ?></b></a><?= ($s['tipo_solicitud'] ?? '') === 'empresa' ? ' <i class="bi bi-buildings text-primary small"></i>' : '' ?></td>
+                                    <td class="small text-muted"><?= e(date('d/m/Y', strtotime($s['creado_en']))) ?></td>
                                     <td><span class="<?= $bg ?>"><i class="bi <?= $ic ?> me-1"></i><?= $txt ?></span></td>
                                 </tr>
                             <?php endforeach; ?>

@@ -17,7 +17,7 @@ require_once 'includes/cabecera.php';
     <div class="container">
         <div class="row g-4">
             <?php
-            $cartas = car_activas();
+            $cartas = $pdo->query("SELECT * FROM cartas WHERE activo = 1 ORDER BY creado_en DESC")->fetchAll();
             if ($cartas):
                 foreach ($cartas as $c):
                     $extracto = strip_tags($c['contenido'] ?? '');

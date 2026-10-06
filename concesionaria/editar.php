@@ -1,14 +1,16 @@
 ﻿<?php
-require_once __DIR__ . '/../funciones.php';
-iniciar_sesion_segura();
-
+session_start();
 if (!isset($_SESSION['usuario_id'])) {
     header('Location: login.php');
     exit;
 }
 
-$id = trim((string)($_GET['id'] ?? ''));
-$auto = oid($id) !== null ? veh_por_id($id) : null;
+require_once '../conexion.php';
+
+$id = (int)($_GET['id'] ?? 0);
+$stmt = $pdo->prepare("SELECT * FROM vehiculos WHERE id = ?");
+$stmt->execute([$id]);
+$auto = $stmt->fetch();
 
 if (!$auto) {
     header('Location: dashboard.php');
@@ -25,20 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $precio      = (float)$_POST['precio'];
     $estado      = $_POST['estado'];
 
-$actualizado = veh_guardar($id, [
-        'marca'      => $marca,
-        'modelo'     => $modelo,
-        'anio'       => $anio,
-        'color'      => $color,
-        'kilometraje'=> $kilometraje,
-        'precio'     => $precio,
-        'estado'     => $estado,
-    ]);
-    if (!empty($actualizado['ok'])) {
+    try {
+        $update = $pdo->prepare("UPDATE vehiculos SET marca = ?, modelo = ?, anio = ?, color = ?, kilometraje = ?, precio = ?, estado = ? WHERE id = ?");
+        $update->execute([$marca, $modelo, $anio, $color, $kilometraje, $precio, $estado, $id]);
         header('Location: dashboard.php');
         exit;
+    } catch (PDOException $e) {
+        $error = 'OcurriÃ³ un error al actualizar los datos.';
     }
-    $error = 'Ocurrió un error al actualizar los datos.';
 }
 ?>
 <!DOCTYPE html>

@@ -4,24 +4,27 @@ require_once __DIR__ . '/includes/cabecera.php';
 $seccionPortal = 'notificaciones';
 $titulo = 'Notificaciones';
 
-$usuario = sesion_actual() ?? ['id' => (string)$_SESSION['usuario_id']];
-$usuarioId = (string)$usuario['id'];
+$usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id']];
 
 /* Marcar una notificación como leída */
-if (isset($_GET['marcar']) && oid((string)$_GET['marcar']) !== null) {
-    notif_marcar_leida($usuarioId, (string)$_GET['marcar']);
+if (isset($_GET['marcar']) && (int)$_GET['marcar'] > 0) {
+    $pdo->prepare('UPDATE notificaciones SET leida = 1 WHERE id = ? AND usuario_id = ?')
+        ->execute([(int)$_GET['marcar'], (int)$usuario['id']]);
     header('Location: notificaciones');
     exit;
 }
 
 /* Marcar todas como leídas */
 if (isset($_GET['todas'])) {
-    notif_marcar_leidas($usuarioId);
+    $pdo->prepare('UPDATE notificaciones SET leida = 1 WHERE usuario_id = ?')
+        ->execute([(int)$usuario['id']]);
     header('Location: notificaciones');
     exit;
 }
 
-$notificaciones = notif_de_usuario($usuarioId, 60);
+$stmt = $pdo->prepare('SELECT * FROM notificaciones WHERE usuario_id = ? ORDER BY creado_en DESC, id DESC LIMIT 60');
+$stmt->execute([(int)$usuario['id']]);
+$notificaciones = $stmt->fetchAll();
 
 $iconos = [
     'exito'            => ['check-circle', 'text-success'],
@@ -52,7 +55,7 @@ $iconos = [
 <?php else: ?>
     <ul class="list-unstyled portal-notif portal-notif-grande mb-0">
         <?php foreach ($notificaciones as $n): [$ico, $color] = $iconos[$n['tipo']] ?? ['info-circle', 'text-info']; ?>
-            <li class="card portal-card border-0 shadow-sm <?= (int)(bool)$n['leida'] ? '' : 'no-leida' ?>">
+            <li class="card portal-card border-0 shadow-sm <?= (int)$n['leida'] ? '' : 'no-leida' ?>">
                 <div class="d-flex align-items-start gap-3 w-100">
                     <div class="flex-shrink-0"><i class="bi bi-<?= $ico ?> fs-4 <?= $color ?>"></i></div>
                     <div class="flex-grow-1">

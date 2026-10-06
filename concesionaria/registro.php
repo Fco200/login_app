@@ -1,11 +1,11 @@
 <?php
-require_once __DIR__ . '/../funciones.php';
-iniciar_sesion_segura();
-
+session_start();
 if (isset($_SESSION['usuario_id'])) {
     header('Location: dashboard.php');
     exit;
 }
+
+require_once '../conexion.php';
 
 $mensaje = '';
 $tipoMensaje = '';
@@ -27,20 +27,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tipoMensaje = 'error';
     } else {
         // Verificar si el correo ya existe
-        if (usr_por_email($email) !== null) {
+        $stmt = $pdo->prepare('SELECT id FROM usuarios WHERE email = ?');
+        $stmt->execute([$email]);
+
+        if ($stmt->fetch()) {
             $mensaje = 'El correo ya está registrado.';
             $tipoMensaje = 'error';
         } else {
             // Cifrar contraseña y guardar
-            $alta = usr_crear([
-                'nombre'   => $nombre,
-                'email'    => $email,
-                'password' => $password,
-                'rol'      => 'vendedor',
-                'activo'   => 1,
-            ]);
-
-            if (!empty($alta['ok'])) {
+            $hash = password_hash($password, PASSWORD_BCRYPT);
+            $stmtInsert = $pdo->prepare('INSERT INTO usuarios (nombre, email, password) VALUES (?, ?, ?)');
+            
+            if ($stmtInsert->execute([$nombre, $email, $hash])) {
                 $mensaje = 'Registro exitoso. Ya puedes iniciar sesión.';
                 $tipoMensaje = 'exito';
             } else {

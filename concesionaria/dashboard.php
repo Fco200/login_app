@@ -1,11 +1,11 @@
 ﻿<?php
-require_once __DIR__ . '/../funciones.php';
-iniciar_sesion_segura();
-
+session_start();
 if (!isset($_SESSION['usuario_id'])) {
     header('Location: login.php');
     exit;
 }
+
+require_once '../conexion.php';
 
 $mensaje = '';
 $tipoMensaje = '';
@@ -21,28 +21,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $precio      = (float)$_POST['precio'];
     $estado      = $_POST['estado'];
 
-    $res = veh_guardar(null, [
-        'vin'        => $vin,
-        'marca'      => $marca,
-        'modelo'     => $modelo,
-        'anio'       => $anio,
-        'color'      => $color,
-        'kilometraje'=> $kilometraje,
-        'precio'     => $precio,
-        'estado'     => $estado,
-    ]);
-    if (!empty($res['ok'])) {
-        $mensaje = "Veh" . chr(237) . "culo agregado al inventario exitosamente.";
+    try {
+        $stmt = $pdo->prepare("INSERT INTO vehiculos (vin, marca, modelo, anio, color, kilometraje, precio, estado, creado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$vin, $marca, $modelo, $anio, $color, $kilometraje, $precio, $estado, $_SESSION['usuario_id']]);
+        $mensaje = "VehÃ­culo agregado al inventario exitosamente.";
         $tipoMensaje = "success";
-    } else {
-        $mensaje = "Error al registrar veh" . chr(237) . "culo (verifica si el VIN est" . chr(225) . " duplicado).";
+    } catch (PDOException $e) {
+        $mensaje = "Error al registrar vehÃ­culo (verifica si el VIN estÃ¡ duplicado).";
         $tipoMensaje = "danger";
     }
 }
 
 // BÃºsqueda y filtrado
 $busqueda = trim($_GET['q'] ?? '');
-$vehiculos = veh_listar($busqueda);
+if ($busqueda !== '') {
+    $sql = "SELECT * FROM vehiculos WHERE vin LIKE ? OR marca LIKE ? OR modelo LIKE ? ORDER BY id DESC";
+    $stmt = $pdo->prepare($sql);
+    $term = "%$busqueda%";
+    $stmt->execute([$term, $term, $term]);
+    $vehiculos = $stmt->fetchAll();
+} else {
+    $vehiculos = $pdo->query("SELECT * FROM vehiculos ORDER BY id DESC")->fetchAll();
+}
 
 // MÃ©tricas de inventario
 $totalAutos = count($vehiculos);
@@ -198,11 +198,11 @@ foreach ($vehiculos as $v) {
                                         <span class="badge <?= $badge ?>"><?= $auto['estado'] ?></span>
                                     </td>
                                     <td class="text-end pe-3">
-                                        <a href="editar.php?id=<?= e((string)$auto['id']) ?>" class="btn btn-sm btn-outline-primary me-1" title="Editar">
+                                        <a href="editar.php?id=<?= $auto['id'] ?>" class="btn btn-sm btn-outline-primary me-1" title="Editar">
                                             <i class="bi bi-pencil"></i>
                                         </a>
                                         <?php if ($_SESSION['rol'] === 'admin'): ?>
-                                            <a href="eliminar.php?id=<?= e((string)$auto['id']) ?>" class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('Â¿Seguro que deseas dar de baja este vehÃ­culo?')">
+                                            <a href="eliminar.php?id=<?= $auto['id'] ?>" class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('Â¿Seguro que deseas dar de baja este vehÃ­culo?')">
                                                 <i class="bi bi-trash"></i>
                                             </a>
                                         <?php endif; ?>

@@ -5,15 +5,22 @@ require_once __DIR__ . '/../funciones.php';
 
 iniciar_sesion_segura();
 
-$id = trim((string)($_GET['id'] ?? ''));
+$id = (int)($_GET['id'] ?? 0);
 $pago = null;
-if (oid($id) !== null) {
-    $pago = pag_completo($id);
+if ($id > 0) {
+    $stmt = $GLOBALS['pdo']->prepare('SELECT p.*, mp.nombre AS metodo_nombre, u.nombre AS cliente_nombre, u.email AS cliente_email,
+                                             s.tipo_servicio AS concepto
+                                      FROM pagos p
+                                      LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
+                                      LEFT JOIN usuarios u ON p.usuario_id = u.id
+                                      LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+                                      WHERE p.id = ?');
+    $stmt->execute([$id]);
+    $pago = $stmt->fetch();
 }
 
 $esAdmin = !empty($_SESSION['admin_id']);
-$esDueno = $pago && esta_logueado()
-    && (string)($pago['usuario_id'] ?? '') === (string)$_SESSION['usuario_id'];
+$esDueno = $pago && esta_logueado() && (int)$pago['usuario_id'] === (int)$_SESSION['usuario_id'];
 
 if (!$pago) {
     http_response_code(404);
@@ -30,7 +37,7 @@ if (!$esAdmin && !$esDueno) {
 
 $datosSitio = datos_sitio();
 
-$folio = folio_pago_txt($pago);
+$folio = 'PAG-' . str_pad((string)$pago['id'], 5, '0', STR_PAD_LEFT);
 $monto = '$' . number_format((float)$pago['monto'], 2) . ' MXN';
 $estadoTxt = [ 'aprobado' => 'Pagado', 'rechazado' => 'Rechazado', 'pendiente' => 'Pendiente' ][$pago['estado']] ?? $pago['estado'];
 $claseEstado = $pago['estado'] === 'aprobado' ? 'ok' : ($pago['estado'] === 'rechazado' ? 'no' : 'pen');
@@ -101,7 +108,7 @@ $claseEstado = $pago['estado'] === 'aprobado' ? 'ok' : ($pago['estado'] === 'rec
 
     <div class="cuerpo">
         <h1>Recibo de pago <span class="estado <?= $claseEstado ?>"><?= e($estadoTxt) ?></span></h1>
-        <p class="sub">Emitido el <?= e(fecha_php($pago['creado_en'], 'd/m/Y')) ?> a las <?= e(fecha_php($pago['creado_en'], 'H:i')) ?> · <?= e(SITE_DIRECCION) ?></p>
+        <p class="sub">Emitido el <?= e(date('d/m/Y', strtotime($pago['creado_en']))) ?> a las <?= e(date('H:i', strtotime($pago['creado_en']))) ?> · <?= e(SITE_DIRECCION) ?></p>
 
         <table>
             <tr><td class="et">Cliente</td><td><b><?= e($pago['cliente_nombre'] ?: 'Cliente registrado') ?></b></td></tr>

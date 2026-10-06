@@ -18,8 +18,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($email === '' || $password === '') {
             $error = 'Completa tu correo y contraseña.';
         } else {
-            $usuario = usr_por_email($email);
-            if ($usuario && (string)($usuario['rol'] ?? '') === 'admin' && usr_verificar_password($usuario, $password)) {
+            $stmt = $pdo->prepare('SELECT id, nombre, email, password, rol FROM usuarios WHERE email = ?');
+            $stmt->execute([$email]);
+            $usuario = $stmt->fetch();
+            if ($usuario && $usuario['rol'] === 'admin' && password_verify($password, $usuario['password'])) {
                 login_ok_admin($usuario);
                 header('Location: index.php');
                 exit;

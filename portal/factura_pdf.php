@@ -7,8 +7,8 @@ require_once __DIR__ . '/../lib/pdf.php';
 
 iniciar_sesion_segura();
 
-$id = trim((string)($_GET['id'] ?? ''));
-if (oid($id) === null) {
+$id = (int)($_GET['id'] ?? 0);
+if ($id <= 0) {
     http_response_code(400);
     exit('ID de factura inválido.');
 }
@@ -21,17 +21,20 @@ if (!$f) {
 
 $esAdmin = esta_admin();
 $usuario = sesion_actual();
-if (!$esAdmin && (!$usuario || (string)($usuario['id'] ?? '') !== (string)($f['usuario_id'] ?? ''))) {
+if (!$esAdmin && (!$usuario || (int)$usuario['id'] !== (int)$f['usuario_id'])) {
     http_response_code(403);
     exit('No autorizado.');
 }
 
-/* El desglose de pagos se guarda como snapshot dentro de la factura. */
-$pagos = is_array($f['pagos'] ?? null) ? array_values($f['pagos']) : [];
-$pagos = array_values(array_filter($pagos, fn($p) => isset($p['monto'])));
+$pagos = json_decode((string)($f['pagos_json'] ?? '[]'), true);
+$pagos = is_array($pagos) ? array_values(array_filter($pagos, fn($p) => isset($p['monto']))) : [];
 
-$fiscal = is_array($f['cliente_fiscal'] ?? null) ? $f['cliente_fiscal'] : [];
-$direccionCliente = (string)($fiscal['direccion'] ?? '');
+$direccionCliente = '';
+if ($f['usuario_id']) {
+    $stU = $GLOBALS['pdo']->prepare('SELECT direccion FROM usuarios WHERE id = ?');
+    $stU->execute([(int)$f['usuario_id']]);
+    $direccionCliente = (string)($stU->fetchColumn() ?: '');
+}
 
 $e = datos_emisor();
 
@@ -41,12 +44,12 @@ $total    = (float)$f['total'];
 $ivaTasa  = $subtotal > 0 ? $iva / $subtotal : 0.16;
 
 $folio       = (string)$f['folio'];
-$fecha       = fecha_php($f['creado_en'], 'd/m/Y');
+$fecha       = date('d/m/Y', strtotime((string)$f['creado_en']));
 $concepto    = (string)$f['concepto'];
-$rfcCliente  = (string)($fiscal['rfc'] ?? '');
-$cliente     = (string)($fiscal['nombre'] ?? ($f['cliente_nombre'] ?? ''));
+$rfcCliente  = (string)($f['rfq_cliente'] ?? '');
+$cliente     = (string)$f['cliente_nombre'];
 $emailCliente= (string)$f['cliente_email'];
-$solicitud   = !empty($f['solicitud_id']) ? (string)$f['solicitud_id'] : '';
+$solicitud   = $f['solicitud_id'] !== null ? (int)$f['solicitud_id'] : 0;
 $servicio    = (string)($f['tipo_servicio'] ?? '');
 
 $AZUL_DARK  = [7, 28, 61];      // #071c3d

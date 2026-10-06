@@ -6,16 +6,23 @@ requiere_sesion();
 if (!isset($seccionPortal)) $seccionPortal = 'inicio';
 
 $usuario = sesion_actual() ?? [
-    'id'    => (string)($_SESSION['usuario_id'] ?? ''),
+    'id'    => (int)$_SESSION['usuario_id'],
     'nombre' => $_SESSION['nombre'] ?? 'Cliente',
     'email'  => '',
 ];
 
-$noNotif = notif_no_leidas($usuario['id']);
-$noChat  = mp_no_leidas_de_usuario($usuario['id']);
+$noNotif = contar_no_leidas('notificaciones', (int)$usuario['id']);
+$noChat  = contar_no_leidas('mensajes_portal', (int)$usuario['id']);
 
 /* Contador del carrito */
-$noCarrito = contar_carrito($usuario['id']);
+$noCarrito = 0;
+try {
+    $stmtCarrito = $GLOBALS['pdo']->prepare('SELECT COALESCE(SUM(cantidad),0) FROM carrito WHERE usuario_id = ?');
+    $stmtCarrito->execute([(int)$usuario['id']]);
+    $noCarrito = (int)$stmtCarrito->fetchColumn();
+} catch (Throwable $e) {
+    $noCarrito = 0;
+}
 
 $enlacesPortal = [
     'inicio'       => ['panel',            'Panel',            'bi-speedometer2'],
