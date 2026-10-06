@@ -64,7 +64,7 @@ $enlaces = [
                     <?php elseif ($arch === 'mensajes.php'): $n = (int)contar_registros('mensajes_contacto', 'leido = 0'); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-warning ms-1"><?= $n ?></span><?php endif; ?>
                     <?php elseif ($arch === 'mensajes_portal.php'): $n = (int)$pdo->query("SELECT COUNT(*) FROM mensajes_portal WHERE remitente = 'cliente' AND leido = 0")->fetchColumn(); ?>
-                        <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
+                        <span class="badge text-bg-danger ms-1 js-badge-chat"<?= $n > 0 ? '' : ' style="display:none;"' ?>><?= $n ?></span>
                     <?php elseif ($arch === 'soporte.php'): $n = (int)contar_registros('soporte', "estado = 'nuevo'"); ?>
                         <?php if ($n > 0): ?><span class="badge text-bg-danger ms-1"><?= $n ?></span><?php endif; ?>
                     <?php endif; ?>

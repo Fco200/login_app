@@ -91,6 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <input type="password" name="password" id="pass" class="form-control" required autocomplete="current-password" placeholder="••••••••">
                             <button type="button" class="btn btn-outline-secondary" onclick="tooglePass()" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
                         </div>
+                        <div class="text-end mt-1">
+                            <a href="../recuperar-password" class="small text-decoration-none" style="color:#0a3d8f;"><i class="bi bi-key me-1"></i>¿Olvidaste tu contraseña?</a>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-fv w-100 py-2"><i class="bi bi-box-arrow-in-right me-1"></i>Entrar al portal</button>
                 </form>

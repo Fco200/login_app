@@ -1046,9 +1046,10 @@ function facturas_por_proyecto(int $proyectoId): array {
     return $st->fetchAll();
 }
 
-function contar_no_leidas(string $tabla, int $usuarioId): int {
+function contar_no_leidas(string $tabla, int $usuarioId, string $columna = 'leida'): int {
+    $columna = in_array($columna, ['leida', 'leido'], true) ? $columna : 'leida';
     try {
-        $stmt = $GLOBALS['pdo']->prepare("SELECT COUNT(*) FROM $tabla WHERE leida = 0 AND usuario_id = ?");
+        $stmt = $GLOBALS['pdo']->prepare("SELECT COUNT(*) FROM $tabla WHERE `$columna` = 0 AND usuario_id = ?");
         $stmt->execute([$usuarioId]);
         return (int)$stmt->fetchColumn();
     } catch (Throwable $e) {
@@ -1203,6 +1204,58 @@ function correo_plantilla(string $titulo, string $contenidoHtml): string {
         . $contenidoHtml
         . '<p style="color:#8a97ad;font-size:12px;margin-top:24px;">Este mensaje fue enviado automáticamente desde el portal de ' . $nombre . '. No respondas a este correo.</p>'
         . '</div></div></body></html>';
+}
+
+/* ---------- Tiempo real (Server-Sent Events) ----------
+   El chat se actualiza al instante: el navegador mantiene abierta una
+   conexión con chat_stream.php y el servidor avisa apenas hay un mensaje
+   nuevo. No requiere Node ni WebSockets: funciona con PHP + Apache. */
+
+function sse_iniciar(): void {
+    @set_time_limit(0);
+    @ini_set('max_execution_time', '0');
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', '0');
+    @ini_set('implicit_flush', '1');
+    if (function_exists('apache_setenv')) { @apache_setenv('no-gzip', '1'); }
+    ignore_user_abort(true);
+
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+    header('Content-Encoding: none');
+
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
+    @ob_implicit_flush(true);
+}
+
+function sse_enviar(string $evento, array $datos): void {
+    echo 'event: ' . $evento . "\n";
+    echo 'data: ' . json_encode($datos, JSON_UNESCAPED_UNICODE) . "\n\n";
+    @flush();
+}
+
+function sse_ping(): void {
+    echo ': ping ' . time() . "\n\n";
+    @flush();
+}
+
+/* Renueva la inactividad de la sesión SIN dejar bloqueado el archivo de
+   sesión (importante: mientras el stream está abierto otras peticiones
+   deben poder leer y escribir la sesión con normalidad). */
+function sesion_tocar(): void {
+    if (!isset($_SESSION['_ultimo_acceso'])) {
+        return;
+    }
+    if (session_status() !== PHP_SESSION_ACTIVE && !@session_start()) {
+        return;
+    }
+    $_SESSION['_ultimo_acceso'] = time();
+    @session_write_close();
 }
 
 /* ---------- Estadísticas reutilizables ---------- */

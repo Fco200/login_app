@@ -12,7 +12,7 @@ $usuario = sesion_actual() ?? [
 ];
 
 $noNotif = contar_no_leidas('notificaciones', (int)$usuario['id']);
-$noChat  = contar_no_leidas('mensajes_portal', (int)$usuario['id']);
+$noChat  = contar_no_leidas('mensajes_portal', (int)$usuario['id'], 'leido');
 
 /* Contador del carrito */
 $noCarrito = 0;

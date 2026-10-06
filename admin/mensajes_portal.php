@@ -3,6 +3,36 @@ $titulo = 'Mensajes del portal';
 $subtitulo = 'Chat interno entre el negocio y los clientes registrados';
 $seccionAdmin = 'mensajes_portal.php';
 
+require_once __DIR__ . '/../funciones.php';
+iniciar_sesion_segura();
+if (!esta_admin()) {
+    header('Location: ' . RUTA_ADMIN_LOGIN);
+    exit;
+}
+
+/* ---------- Responder (AJAX para no recargar la página) ---------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verificar_csrf() || !empty($_POST['empresa'])) {
+        responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
+    }
+    $texto = trim($_POST['mensaje'] ?? '');
+    $usuarioId = (int)($_POST['usuario_id'] ?? 0);
+
+    if ($texto === '') {
+        responder(['ok' => false, 'mensaje' => 'Escribe un mensaje antes de enviar.', 'tipo' => 'danger']);
+    }
+    if ($usuarioId <= 0) {
+        responder(['ok' => false, 'mensaje' => 'Elige una conversación para responder.', 'tipo' => 'danger']);
+    }
+
+    $pdo->prepare('INSERT INTO mensajes_portal (usuario_id, remitente, mensaje) VALUES (?, ?, ?)')
+        ->execute([$usuarioId, 'negocio', mb_substr($texto, 0, 2000)]);
+    notificar($usuarioId, 'mensaje', 'Tienes un mensaje nuevo',
+        mb_strimwidth($texto, 0, 90, '…'), url_sitio('portal/mensajes.php'));
+
+    responder(['ok' => true, 'mensaje' => 'Respuesta enviada al cliente.', 'destino' => 'mensajes_portal.php?usuario_id=' . $usuarioId]);
+}
+
 require_once __DIR__ . '/includes/cabecera.php';
 
 /* Mensajes predeterminados para responder rápido a los clientes */
@@ -18,24 +48,6 @@ $MENSAJES_RAPIDOS = [
     ['text' => 'Para iniciar el proyecto se requiere un anticipo mínimo de $2,500 MXN, que se descuenta del total de tu cotización. ¿Deseas proceder con el pago?', 'icono' => 'bi-cash-stack', 'label' => 'Recordatorio de anticipo'],
     ['text' => 'Estamos preparando tu cotización completa. En cuanto esté lista te la enviamos por este medio.', 'icono' => 'bi-file-earmark-text', 'label' => 'Cotización en proceso'],
 ];
-
-/* ---------- Responder ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
-    $texto = trim($_POST['mensaje'] ?? '');
-    $usuarioId = (int)($_POST['usuario_id'] ?? 0);
-
-    if ($texto !== '' && $usuarioId > 0) {
-        $pdo->prepare('INSERT INTO mensajes_portal (usuario_id, remitente, mensaje) VALUES (?, ?, ?)')
-            ->execute([$usuarioId, 'negocio', mb_substr($texto, 0, 2000)]);
-        notificar($usuarioId, 'mensaje', 'Tienes un mensaje nuevo',
-            mb_strimwidth($texto, 0, 90, '…'), url_sitio('portal/mensajes.php'));
-        flash('Respuesta enviada al cliente.');
-    } else {
-        flash('Escribe un mensaje válido.', 'danger');
-    }
-    header('Location: mensajes_portal.php?usuario_id=' . $usuarioId);
-    exit;
-}
 
 /* ---------- Marcar conversación como atendida (leída) ---------- */
 $selUsuario = (int)($_GET['usuario_id'] ?? 0);
@@ -66,18 +78,18 @@ if ($selUsuario > 0) {
 }
 ?>
 
-<div class="row g-3">
+<div class="row g-3" id="adminChatLive" data-usuario="<?= $selUsuario ?>">
     <!-- Lista de conversaciones -->
     <div class="col-lg-4">
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white"><b>Conversaciones (<?= count($conversaciones) ?>)</b></div>
-            <div class="card-body p-0">
+            <div class="card-header bg-white"><b id="convTotal">Conversaciones (<?= count($conversaciones) ?>)</b></div>
+            <div class="card-body p-0" id="listaConversaciones">
                 <?php if (!$conversaciones): ?>
                     <p class="text-center text-muted small py-4 mb-0">Aún no hay mensajes del portal.</p>
                 <?php else: ?>
                     <div class="list-group list-group-flush">
                         <?php foreach ($conversaciones as $c): $pend = (int)$c['pendientes']; ?>
-                            <a href="mensajes_portal.php?usuario_id=<?= (int)$c['usuario_id'] ?>"
+                            <a href="mensajes_portal.php?usuario_id=<?= (int)$c['usuario_id'] ?>" data-conv="<?= (int)$c['usuario_id'] ?>"
                                class="list-group-item list-group-item-action <?= $selUsuario === (int)$c['usuario_id'] ? 'active' : '' ?>">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <b class="small"><?= e($c['nombre']) ?></b>
@@ -106,7 +118,7 @@ if ($selUsuario > 0) {
             </div>
             <div class="card-body">
                 <?php if ($selUsuario > 0 && $conversacion): ?>
-                    <div class="chat-admin-caja mb-3">
+                    <div class="chat-admin-caja mb-3" id="chatAdminCaja">
                         <?php foreach ($conversacion as $m): ?>
                             <div class="burbuja <?= $m['remitente'] === 'negocio' ? 'mia' : 'suya' ?>">
                                 <?= e($m['mensaje']) ?>
@@ -123,11 +135,12 @@ if ($selUsuario > 0) {
                             </button>
                         <?php endforeach; ?>
                     </div>
-                    <form method="POST" action="mensajes_portal.php" class="d-flex gap-2">
+                    <form method="POST" action="mensajes_portal.php" class="js-ajax js-chat d-flex gap-2">
                         <?= campo_csrf() ?>
+                        <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
                         <input type="hidden" name="usuario_id" value="<?= $selUsuario ?>">
                         <textarea name="mensaje" id="txtRespuesta" class="form-control" rows="2" maxlength="2000" required placeholder="Escribe tu respuesta…"></textarea>
-                        <button class="btn btn-fv flex-shrink-0"><i class="bi bi-send me-1"></i>Responder</button>
+                        <button class="btn btn-fv flex-shrink-0" data-cargando="Enviando…"><i class="bi bi-send me-1"></i>Responder</button>
                     </form>
                     <script>
                     document.querySelectorAll('.btn-mensaje-rapido').forEach(function (btn) {

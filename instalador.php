@@ -188,6 +188,18 @@ $sql = [
   creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY usuario_id (usuario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+"CREATE TABLE IF NOT EXISTS password_reseteos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT NOT NULL,
+  email VARCHAR(190) NOT NULL,
+  codigo_hash CHAR(64) NOT NULL,
+  intentos TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  usado TINYINT(1) NOT NULL DEFAULT 0,
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY usuario_id (usuario_id),
+  KEY email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
 foreach ($sql as $q) {
