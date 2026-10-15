@@ -336,6 +336,7 @@ if (btnEmitir) {
         }).then(function (r) {
             if (!r.isConfirmed) return;
             btnEmitir.disabled = true;
+            if (window.FV && FV.cargando) FV.cargando(true);
             var fd = new FormData(form);
             fetch(form.action, {
                 method: 'POST',
@@ -345,19 +346,25 @@ if (btnEmitir) {
             .then(function (resp) { return resp.json(); })
             .then(function (d) {
                 btnEmitir.disabled = false;
+                if (window.FV && FV.cargando) FV.cargando(false);
                 if (d.ok) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: '¡Factura emitida!',
-                        text: d.mensaje || 'Tu factura quedó lista para descargar.',
-                        confirmButtonColor: '#0a3d8f'
-                    }).then(function () { location.href = d.destino || 'facturacion'; });
+                    if (window.FV && FV.overlay) {
+                        FV.overlay({ tipo: 'success', titulo: '¡Factura emitida!', mensaje: d.mensaje || 'Tu factura quedó lista para descargar.', destino: d.destino || 'facturacion' });
+                    } else {
+                        Swal.fire({
+                            icon: 'success',
+                            title: '¡Factura emitida!',
+                            text: d.mensaje || 'Tu factura quedó lista para descargar.',
+                            confirmButtonColor: '#0a3d8f'
+                        }).then(function () { location.href = d.destino || 'facturacion'; });
+                    }
                 } else {
                     Swal.fire({ icon: 'error', title: 'Error', text: d.mensaje || 'No se pudo emitir la factura.' });
                 }
             })
             .catch(function () {
                 btnEmitir.disabled = false;
+                if (window.FV && FV.cargando) FV.cargando(false);
                 Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo emitir la factura.' });
             });
         });

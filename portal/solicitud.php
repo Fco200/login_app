@@ -90,56 +90,112 @@ require_once __DIR__ . '/includes/cabecera.php';
                 </div>
 
                 <?php if ($pre): ?>
-            <div class="alert alert-fv-light small py-2 mb-4 d-flex justify-content-between align-items-center gap-3">
-                <span><i class="bi bi-arrow-repeat me-1"></i>Copiamos los datos de tu solicitud <b><?= e($pre['tipo_servicio']) ?></b> del <?= e(date('d/m/Y', strtotime($pre['creado_en']))) ?>. Ajusta lo que quieras y vuelve a enviarla.</span>
-                <a href="nueva-solicitud" class="btn btn-sm btn-outline-fv flex-shrink-0"><i class="bi bi-x-lg"></i></a>
-            </div>
-        <?php endif; ?>
+                    <div class="alert alert-fv-light small py-2 mb-4 d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-arrow-repeat me-1"></i>Copiamos los datos de tu solicitud <b><?= e($pre['tipo_servicio']) ?></b> del <?= e(date('d/m/Y', strtotime($pre['creado_en']))) ?>. Ajusta lo que quieras y vuelve a enviarla.</span>
+                        <a href="nueva-solicitud" class="btn btn-sm btn-outline-fv flex-shrink-0"><i class="bi bi-x-lg"></i></a>
+                    </div>
+                <?php endif; ?>
 
-        <form method="POST" action="solicitud.php" class="js-ajax" novalidate id="formSolicitud">
-            <?= campo_csrf() ?>
-            <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label class="form-label">Nombre completo *</label>
-                    <input type="text" name="nombre" class="form-control" required placeholder="Tu nombre" value="<?= e($usuario['nombre']) ?>">
+                <div class="pasos" id="pasosSolicitud">
+                    <button type="button" class="paso activo" data-paso="0">
+                        <span class="circulo-paso">1</span><small>Servicio</small>
+                    </button>
+                    <button type="button" class="paso" data-paso="1">
+                        <span class="circulo-paso">2</span><small>Tus datos</small>
+                    </button>
+                    <button type="button" class="paso" data-paso="2">
+                        <span class="circulo-paso">3</span><small>Tu proyecto</small>
+                    </button>
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label">Correo electrónico *</label>
-                    <input type="email" name="email" class="form-control" required value="<?= e($usuario['email']) ?>" readonly>
-                    <div class="form-text">Correo de tu cuenta (no modificable).</div>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Teléfono / WhatsApp *</label>
-                    <input type="tel" name="telefono" class="form-control" required placeholder="662 123 4567" value="<?= e(trim($_POST['telefono'] ?? ($pre['telefono'] ?? $usuario['telefono'] ?? ''))) ?>">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Servicio que te interesa *</label>
-                    <select name="servicio" class="form-select" required>
-                        <option value="">-- Selecciona un servicio --</option>
-                        <?php foreach ($servicios as $s): ?>
-                            <option value="<?= e($s['slug']) ?>" <?= $servicioSel === $s['slug'] ? 'selected' : '' ?>><?= e($s['titulo']) ?></option>
-                        <?php endforeach; ?>
-                        <option value="Otro / proyecto especial" <?= $servicioSel === 'Otro / proyecto especial' ? 'selected' : '' ?>>Otro / proyecto especial</option>
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">¿Cuál es tu presupuesto aproximado?</label>
-                    <select name="presupuesto" class="form-select">
-                        <option value="">Sin definir</option>
-                        <option value="2000" <?= $presupPre === '2000' ? 'selected' : '' ?>>Hasta $2,000</option>
-                        <option value="5000" <?= $presupPre === '5000' ? 'selected' : '' ?>>$2,000 – $5,000</option>
-                        <option value="10000" <?= $presupPre === '10000' ? 'selected' : '' ?>>$5,000 – $10,000</option>
-                        <option value="20000" <?= $presupPre === '20000' ? 'selected' : '' ?>>$10,000 – $20,000</option>
-                        <option value="50000" <?= $presupPre === '50000' ? 'selected' : '' ?>>Más de $20,000</option>
-                    </select>
-                </div>
-                <div class="col-12">
-                    <label class="form-label">Cuéntanos tu proyecto *</label>
-                    <textarea name="descripcion" class="form-control" rows="5" required placeholder="Describe tu idea, objetivos, referencias, plazos…"><?= e((string)($pre['mensaje'] ?? '')) ?></textarea>
-                </div>
-                        <div class="col-12">
-                            <button type="submit" class="btn btn-fv btn-lg w-100"><i class="bi bi-send me-2"></i>Enviar solicitud</button>
+
+                <form method="POST" action="solicitud.php" class="js-ajax" novalidate id="formSolicitud"
+                      data-servicio-sel="<?= e($servicioSel) ?>">
+                    <?= campo_csrf() ?>
+                    <input type="text" name="empresa" class="d-none" tabindex="-1" autocomplete="off" aria-hidden="true">
+                    <input type="hidden" name="servicio" id="inputServicio" value="<?= e($servicioSel) ?>">
+
+                    <!-- Paso 1: servicio -->
+                    <div class="paso-panel activo" data-panel="0">
+                        <p class="text-muted small mb-3">¿Sobre qué servicio quieres que trabajemos?</p>
+                        <div class="row g-2 mb-2">
+                            <?php foreach ($servicios as $s): ?>
+                                <div class="col-md-6">
+                                    <button type="button" class="opcion-servicio" data-slug="<?= e($s['slug']) ?>" data-titulo="<?= e($s['titulo']) ?>">
+                                        <span class="ico"><i class="bi <?= e($s['icono'] ?: 'bi-stars') ?>"></i></span>
+                                        <span class="flex-grow-1">
+                                            <b class="d-block"><?= e($s['titulo']) ?></b>
+                                            <small class="text-muted"><?= e($s['descripcion_corta']) ?></small>
+                                        </span>
+                                        <i class="bi bi-check-circle-fill text-primary opcion-check d-none"></i>
+                                    </button>
+                                </div>
+                            <?php endforeach; ?>
+                            <div class="col-md-6">
+                                <button type="button" class="opcion-servicio" data-slug="Otro / proyecto especial" data-titulo="Otro / proyecto especial">
+                                    <span class="ico"><i class="bi bi-stars"></i></span>
+                                    <span class="flex-grow-1"><b class="d-block">Otro / proyecto especial</b><small class="text-muted">Cuéntanos tu idea</small></span>
+                                    <i class="bi bi-check-circle-fill text-primary opcion-check d-none"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="avisoServicio" class="text-danger small d-none"><i class="bi bi-exclamation-circle me-1"></i>Selecciona un servicio para continuar.</div>
+                    </div>
+
+                    <!-- Paso 2: datos de contacto -->
+                    <div class="paso-panel" data-panel="1">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Nombre completo *</label>
+                                <input type="text" name="nombre" class="form-control" required value="<?= e($usuario['nombre']) ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Correo electrónico *</label>
+                                <input type="email" name="email" class="form-control" required value="<?= e($usuario['email']) ?>" readonly>
+                                <div class="form-text">Correo de tu cuenta (no modificable).</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Teléfono / WhatsApp *</label>
+                                <input type="tel" name="telefono" class="form-control" required placeholder="662 123 4567" value="<?= e(trim($_POST['telefono'] ?? ($pre['telefono'] ?? $usuario['telefono'] ?? ''))) ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">¿Cuál es tu presupuesto aproximado?</label>
+                                <select name="presupuesto" class="form-select">
+                                    <option value="">Sin definir</option>
+                                    <option value="2000" <?= $presupPre === '2000' ? 'selected' : '' ?>>Hasta $2,000</option>
+                                    <option value="5000" <?= $presupPre === '5000' ? 'selected' : '' ?>>$2,000 – $5,000</option>
+                                    <option value="10000" <?= $presupPre === '10000' ? 'selected' : '' ?>>$5,000 – $10,000</option>
+                                    <option value="20000" <?= $presupPre === '20000' ? 'selected' : '' ?>>$10,000 – $20,000</option>
+                                    <option value="50000" <?= $presupPre === '50000' ? 'selected' : '' ?>>Más de $20,000</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Paso 3: descripción + resumen -->
+                    <div class="paso-panel" data-panel="2">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Cuéntanos tu proyecto *</label>
+                                <textarea name="descripcion" class="form-control" rows="5" required placeholder="Describe tu idea, objetivos, referencias, plazos…"><?= e((string)($pre['mensaje'] ?? '')) ?></textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="resumen-solicitud">
+                                    <b class="d-block mb-2"><i class="bi bi-clipboard-check me-1 text-primary"></i>Resumen de tu solicitud</b>
+                                    <dl class="row mb-0">
+                                        <dt class="col-sm-4">Servicio</dt><dd class="col-sm-8" id="resServicio">—</dd>
+                                        <dt class="col-sm-4">Teléfono</dt><dd class="col-sm-8" id="resTelefono">—</dd>
+                                        <dt class="col-sm-4">Presupuesto</dt><dd class="col-sm-8 mb-0" id="resPresupuesto">Sin definir</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
+                        <button type="button" id="btnAtras" class="btn btn-light d-none"><i class="bi bi-arrow-left me-1"></i>Atrás</button>
+                        <div class="ms-auto d-flex gap-2">
+                            <button type="button" id="btnSiguiente" class="btn btn-fv">Siguiente <i class="bi bi-arrow-right ms-1"></i></button>
+                            <button type="submit" id="btnEnviar" class="btn btn-fv d-none" data-cargando="<span class=&quot;spinner-border spinner-border-sm me-1&quot;></span>Enviando…"><i class="bi bi-send me-2"></i>Enviar solicitud</button>
                         </div>
                     </div>
                 </form>
@@ -147,5 +203,93 @@ require_once __DIR__ . '/includes/cabecera.php';
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    var form = document.getElementById('formSolicitud');
+    if (!form) return;
+    var paneles = form.querySelectorAll('.paso-panel');
+    var pasos = document.querySelectorAll('#pasosSolicitud .paso');
+    var inputServicio = document.getElementById('inputServicio');
+    var aviso = document.getElementById('avisoServicio');
+    var btnAtras = document.getElementById('btnAtras');
+    var btnSig = document.getElementById('btnSiguiente');
+    var btnEnviar = document.getElementById('btnEnviar');
+    var total = paneles.length;
+    var actual = 0;
+
+    function pintar() {
+        for (var i = 0; i < paneles.length; i++) paneles[i].classList.toggle('activo', i === actual);
+        for (var j = 0; j < pasos.length; j++) {
+            pasos[j].classList.toggle('activo', j === actual);
+            pasos[j].classList.toggle('hecho', j < actual);
+        }
+        btnAtras.classList.toggle('d-none', actual === 0);
+        btnSig.classList.toggle('d-none', actual === total - 1);
+        btnEnviar.classList.toggle('d-none', actual !== total - 1);
+        actualizarResumen();
+    }
+
+    function validarPaso() {
+        var panel = paneles[actual];
+        var ok = true;
+        panel.querySelectorAll('input,select,textarea').forEach(function (f) {
+            f.classList.remove('is-invalid');
+            if (!f.checkValidity()) { ok = false; f.classList.add('is-invalid'); }
+        });
+        if (actual === 0 && !inputServicio.value) { ok = false; aviso.classList.remove('d-none'); }
+        return ok;
+    }
+
+    function actualizarResumen() {
+        var slug = inputServicio.value;
+        var elegido = form.querySelector('.opcion-servicio.sel');
+        document.getElementById('resServicio').textContent = elegido ? elegido.dataset.titulo : (slug || '—');
+        var tel = form.querySelector('[name="telefono"]');
+        document.getElementById('resTelefono').textContent = tel && tel.value ? tel.value : '—';
+        var pres = form.querySelector('[name="presupuesto"]');
+        var opt = pres && pres.options[pres.selectedIndex];
+        document.getElementById('resPresupuesto').textContent = opt && opt.value ? opt.textContent : 'Sin definir';
+    }
+
+    form.querySelectorAll('.opcion-servicio').forEach(function (op) {
+        op.addEventListener('click', function () {
+            form.querySelectorAll('.opcion-servicio').forEach(function (o) {
+                o.classList.remove('sel');
+                var chk = o.querySelector('.opcion-check');
+                if (chk) chk.classList.add('d-none');
+            });
+            op.classList.add('sel');
+            var chk = op.querySelector('.opcion-check');
+            if (chk) chk.classList.remove('d-none');
+            inputServicio.value = op.dataset.slug;
+            aviso.classList.add('d-none');
+            actualizarResumen();
+        });
+    });
+
+    form.querySelector('[name="telefono"]').addEventListener('input', actualizarResumen);
+    form.querySelector('[name="presupuesto"]').addEventListener('change', actualizarResumen);
+
+    btnSig.addEventListener('click', function () {
+        if (!validarPaso()) return;
+        if (actual < total - 1) { actual++; pintar(); }
+    });
+    btnAtras.addEventListener('click', function () {
+        if (actual > 0) { actual--; pintar(); }
+    });
+
+    /* Preselección: si vienes de "Solicitar este servicio" arranca con él marcado. */
+    var pre = form.dataset.servicioSel;
+    if (pre) {
+        var op = form.querySelector('.opcion-servicio[data-slug="' + (window.CSS && CSS.escape ? CSS.escape(pre) : pre) + '"]');
+        if (op) {
+            op.click();
+            actual = 1;
+        }
+    }
+    pintar();
+})();
+</script>
 
 <?php require_once __DIR__ . '/includes/pie.php'; ?>

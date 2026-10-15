@@ -20,5 +20,25 @@
 <?php if ($seccionPortal === 'juego'): ?>
     <script src="../assets/js/juegos.js"></script>
 <?php endif; ?>
+<script>
+/* Mantiene viva la sesión del cliente: renueva _ultimo_acceso cada minuto
+   mientras el portal siga abierto, de modo que no expire por inactividad. */
+(function () {
+    function latido() {
+        fetch('keepalive.php', {
+            cache: 'no-store',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.ok === false && d.sesion === false) {
+                location.href = 'salir';
+            }
+        }).catch(function () {});
+    }
+    setInterval(latido, 60000);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) latido();
+    });
+})();
+</script>
 </body>
 </html>

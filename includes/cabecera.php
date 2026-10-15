@@ -85,9 +85,7 @@ $horario = dato_sitio('horario', SITE_HORARIO);
                             <li class="nav-item ms-lg-2 mt-2 mt-lg-0 position-relative">
                                 <a href="clientes/carrito" class="btn btn-outline-fv btn-sm" title="Mi carrito">
                                     <i class="bi bi-cart3"></i>
-                                    <?php if (esta_logueado() && $cartPublico > 0): ?>
-                                        <span class="badge text-bg-primary rounded-pill" style="position:absolute;top:-6px;right:-6px;font-size:.6rem;"><?= $cartPublico ?></span>
-                                    <?php endif; ?>
+                                    <span class="badge text-bg-primary rounded-pill" data-carrito-badge style="position:absolute;top:-6px;right:-6px;font-size:.6rem;<?= $cartPublico > 0 ? '' : 'display:none;' ?>"><?= $cartPublico ?></span>
                                 </a>
                             </li>
                 <?php else: ?>

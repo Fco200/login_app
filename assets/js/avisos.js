@@ -101,13 +101,34 @@ window.FV = window.FV || {};
         for (var i = 0; i < badges.length; i++) {
             badges[i].textContent = n;
             badges[i].style.display = n > 0 ? '' : 'none';
+            badges[i].classList.remove('fv-carrito-salta');
+            void badges[i].offsetWidth;
+            badges[i].classList.add('fv-carrito-salta');
         }
+        // Anima también el icono del carrito del portal si está visible.
+        var iconos = document.querySelectorAll('a[href$="carrito"] .bi-cart3');
+        for (var j = 0; j < iconos.length; j++) {
+            iconos[j].classList.remove('fv-carrito-salta');
+            void iconos[j].offsetWidth;
+            iconos[j].classList.add('fv-carrito-salta');
+        }
+    };
+
+    /* Marca un elemento con una animación corta (para totales/subtotales). */
+    FV.pulso = function (el) {
+        if (!el) return;
+        el.classList.remove('fv-pulso');
+        void el.offsetWidth;
+        el.classList.add('fv-pulso');
     };
 
     FV.actualizarResumen = function (d) {
         function set(sel, val) {
             var el = document.querySelector(sel);
-            if (el && val != null) el.textContent = String(val);
+            if (el && val != null && el.textContent !== String(val)) {
+                el.textContent = String(val);
+                FV.pulso(el);
+            }
         }
         if (typeof d.cart_count === 'number') FV.actualizarCarrito(d.cart_count);
         if (d.cart_subtotal != null) { set('[data-cart-subtotal]', d.cart_subtotal); set('[data-cart-total]', d.cart_total || d.cart_subtotal); }

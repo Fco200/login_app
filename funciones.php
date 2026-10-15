@@ -395,7 +395,17 @@ function es_ajax(): bool {
  *  - Si la petición es AJAX devuelve JSON (la capa JS muestra el overlay animado).
  *  - Si es una petición normal hace redirect con mensaje flash.
  * $datos: ['ok', 'mensaje', 'tipo', 'destino', 'titulo']
+ *
+ * La cabecera (HTML) de la pagina se imprime ANTES de que la accion responda,
+ * asi que el JSON/redirect quedaría "prefijado" con HTML y el navegador fallaria
+ * al leerlo. Por eso descartamos todos los buffers abiertos antes de responder.
  */
+function descartar_buffers(): void {
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+}
+
 function responder(array $datos): void {
     $datos += [
         'ok'      => true,
@@ -405,9 +415,11 @@ function responder(array $datos): void {
         'titulo'  => null,
     ];
 
+    descartar_buffers();
+
     if (es_ajax()) {
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode($datos, JSON_UNESCAPED_UNICODE);
+        echo json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         exit;
     }
 
@@ -1018,7 +1030,8 @@ function factura_crear(array $d): array {
         }
 
         $pdo->commit();
-        return ['ok' => true, 'factura_id' => $facturaId, 'folio' => $folio, 'subtotal' => $subtotal, 'iva' => $iva, 'total' => $total];
+        return ['ok' => true, 'factura_id' => $facturaId, 'folio' => $folio, 'subtotal' => $subtotal, 'iva' => $iva, 'total' => $total,
+                'mensaje' => 'La factura ' . $folio . ' por $' . number_format($total, 2) . ' MXN quedó lista para descargar.'];
     } catch (Throwable $e) {
         $pdo->rollBack();
         return ['ok' => false, 'mensaje' => 'No se pudo emitir la factura: ' . $e->getMessage()];

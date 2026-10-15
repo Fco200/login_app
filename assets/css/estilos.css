@@ -327,6 +327,32 @@ footer a:hover { color: #fff; }
 .fv-cargando .spinner-border { width: 3rem; height: 3rem; }
 .fv-cargando b { display: block; margin-top: .9rem; }
 
+/* ---------- Animaciones de actualización en vivo (carrito / totales) ---------- */
+@keyframes fvPulso {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.22); }
+    100% { transform: scale(1); }
+}
+.fv-pulso { display: inline-block; animation: fvPulso .55s cubic-bezier(.2,1.4,.4,1); }
+
+@keyframes fvFilaEntra {
+    from { opacity: 0; transform: translateY(-6px); background: rgba(22,199,154,.14); }
+    to   { opacity: 1; transform: translateY(0); background: transparent; }
+}
+.fv-fila-entra { animation: fvFilaEntra .5s ease; }
+
+@keyframes fvFilaSale {
+    to { opacity: 0; transform: translateX(30px); max-height: 0; padding-top: 0; padding-bottom: 0; border-width: 0; }
+}
+.fv-fila-sale { animation: fvFilaSale .32s ease forwards; overflow: hidden; }
+
+@keyframes fvCarritoSalta {
+    0%, 100% { transform: translateY(0) scale(1); }
+    30%      { transform: translateY(-4px) scale(1.14); }
+    60%      { transform: translateY(0) scale(.94); }
+}
+.fv-carrito-salta { animation: fvCarritoSalta .5s ease; }
+
 /* ---------- Lista de contacto ---------- */
 .lista-contacto { list-style: none; padding-left: 0; margin-bottom: 0; }
 .lista-contacto li { display: flex; gap: .9rem; align-items: flex-start; padding: .7rem 0; border-bottom: 1px dashed var(--borde); }

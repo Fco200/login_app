@@ -44,6 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tipoItem = '';
         $tituloItem = '';
 
+        /* Los servicios NO se compran por carrito: se solicitan con el
+           formulario de cotización para darles seguimiento. */
+        if ($servicioId > 0 && $productoId <= 0) {
+            responder([
+                'ok'      => false,
+                'tipo'    => 'info',
+                'titulo'  => 'Los servicios se cotizan',
+                'mensaje' => 'Para contratar un servicio completa el formulario de solicitud y te enviaremos una propuesta.',
+                'destino' => 'nueva-solicitud',
+            ]);
+        }
+
         if ($productoId > 0) {
             $stmt = $pdo->prepare('SELECT * FROM productos WHERE id = ? AND activo = 1');
             $stmt->execute([$productoId]);
@@ -385,11 +397,14 @@ document.addEventListener('fv:ajaxok', function (e) {
     var itemEliminado = d.item_eliminado;
     if (itemEliminado) {
         var fila = document.getElementById('item-' + itemEliminado);
-        if (fila && fila.parentNode) fila.parentNode.removeChild(fila);
+        if (fila && fila.parentNode) {
+            fila.classList.add('fv-fila-sale');
+            setTimeout(function () { if (fila.parentNode) fila.parentNode.removeChild(fila); }, 320);
+        }
     }
     if (d.item_id && d.item_subtotal) {
         var sub = document.querySelector('[data-subtotal-item="' + d.item_id + '"]');
-        if (sub) sub.textContent = d.item_subtotal;
+        if (sub) { sub.textContent = d.item_subtotal; if (window.FV && FV.pulso) FV.pulso(sub); }
     }
     if (d.vacio) {
         var lleno = document.getElementById('carritoLleno');

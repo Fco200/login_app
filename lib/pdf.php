@@ -434,11 +434,12 @@ final class FV_PDF
             $cuerpo .= $s;
         }
 
-        $offsetsEntradas = $offsets;
-        $xrefPos = strlen($cuerpo);
-        $out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n" . $cuerpo . "xref\n0 " . ($numObjetos + 1) . "\n0000000000 65535 f \n";
-        foreach ($offsetsEntradas as $off) {
-            $out .= sprintf("%010d 00000 n \n", $off);
+        $cabecera = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+        $desfase = strlen($cabecera);
+        $xrefPos = $desfase + strlen($cuerpo);
+        $out = $cabecera . $cuerpo . "xref\n0 " . ($numObjetos + 1) . "\n0000000000 65535 f \n";
+        foreach ($offsets as $off) {
+            $out .= sprintf("%010d 00000 n \n", $off + $desfase);
         }
         $out .= "trailer\n<< /Size " . ($numObjetos + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefPos . "\n%%EOF";
         return $out;

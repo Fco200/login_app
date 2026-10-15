@@ -29,10 +29,7 @@ require_once 'includes/cabecera.php';
                             <p class="precio-desde mt-auto mb-3">Desde <b><?= e(formatear_precio((float)$s['precio_desde'])) ?></b></p>
                         <?php endif; ?>
                         <div class="d-grid gap-2 mt-auto">
-                            <a href="solicitud.php?servicio=<?= e($s['slug']) ?>" class="btn btn-fv w-100">Solicitar este servicio</a>
-                            <?php if ((float)($s['precio_desde'] ?? 0) > 0): ?>
-                                <?= form_agregar_carrito((int)$s['id'], 'servicio', $s['titulo']) ?>
-                            <?php endif; ?>
+                            <a href="solicitud.php?servicio=<?= e($s['slug']) ?>" class="btn btn-fv w-100">Solicitar este servicio <i class="bi bi-arrow-right ms-1"></i></a>
                         </div>
                     </div>
                 </div>
