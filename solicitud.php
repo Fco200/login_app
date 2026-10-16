@@ -8,6 +8,14 @@ $servicioSel = trim($_GET['servicio'] ?? '');
 $usuarioSesion = sesion_actual();
 $enviada = false;
 
+/* Mapa de servicios con precio fijo (no cotizados): slug => precio */
+$preciosFijos = [];
+foreach ($servicios as $sv) {
+    if (!empty($sv['precio_fijo']) && (float)$sv['precio_desde'] > 0) {
+        $preciosFijos[$sv['slug']] = (float)$sv['precio_desde'];
+    }
+}
+
 /* Iniciar sesión es obligatorio para solicitar una cotización: así el cliente
    puede darle seguimiento a su solicitud en el portal. */
 $retorno = 'solicitud.php' . ($servicioSel !== '' ? '?servicio=' . rawurlencode($servicioSel) : '');
@@ -33,7 +41,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf() && empty($_POST['e
     $servicio = trim($_POST['servicio'] ?? '');
 
     $presupuesto = '';
-    if (!empty($_POST['presupuesto'])) {
+    if (isset($preciosFijos[$servicio])) {
+        /* Servicio de precio fijo (ej. mantenimiento): no se cotiza,
+           se asigna automáticamente el precio definido. */
+        $presupuesto = number_format($preciosFijos[$servicio], 2, '.', '');
+    } elseif (!empty($_POST['presupuesto'])) {
         $monto = (float)str_replace([',', '$'], '', $_POST['presupuesto']);
         $presupuesto = $monto > 0 ? number_format($monto, 2, '.', '') : '';
     }
@@ -170,16 +182,20 @@ require_once 'includes/cabecera.php';
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Servicio que te interesa *</label>
-                                    <select name="servicio" class="form-select" required>
+                                    <select name="servicio" id="selServicio" class="form-select" required>
                                         <option value="">-- Selecciona un servicio --</option>
                                         <?php foreach ($servicios as $s): ?>
-                                            <?php $enfoque = $servicioSel === $s['slug'] ? ' selected' : ''; ?>
-                                            <option value="<?= e($s['slug']) ?>"<?= $enfoque ?>><?= e($s['titulo']) ?></option>
+                                            <?php
+                                            $enfoque = $servicioSel === $s['slug'] ? ' selected' : '';
+                                            $esFijo = !empty($s['precio_fijo']) && (float)$s['precio_desde'] > 0;
+                                            $dataExtra = $esFijo ? ' data-fijo="1" data-precio="' . e((string)$s['precio_desde']) . '"' : '';
+                                            ?>
+                                            <option value="<?= e($s['slug']) ?>"<?= $enfoque . $dataExtra ?>><?= e($s['titulo']) ?></option>
                                         <?php endforeach; ?>
                                         <option value="Otro / proyecto especial">Otro / proyecto especial</option>
                                     </select>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-6" id="grupoPresupuesto">
                                     <label class="form-label">¿Cuál es tu presupuesto aproximado?</label>
                                     <select name="presupuesto" class="form-select">
                                         <option value="">Sin definir</option>
@@ -189,6 +205,13 @@ require_once 'includes/cabecera.php';
                                         <option value="20000">$10,000 – $20,000</option>
                                         <option value="50000">Más de $20,000</option>
                                     </select>
+                                </div>
+                                <div class="col-12 d-none" id="avisoPrecioFijo">
+                                    <div class="alert alert-fv-light small py-2 mb-0 d-flex align-items-center gap-2">
+                                        <i class="bi bi-tag-fill text-primary"></i>
+                                        Este servicio tiene <b>precio fijo</b>: <b id="precioFijoMonto"></b> MXN.
+                                        No es necesario indicar presupuesto, se aplica automáticamente.
+                                    </div>
                                 </div>
                                 <div class="col-12">
                                     <label class="form-label">Cuéntanos tu proyecto *</label>
@@ -205,5 +228,36 @@ require_once 'includes/cabecera.php';
         </div>
     </section>
 <?php endif; ?>
+
+<script>
+(function () {
+    var sel = document.getElementById('selServicio');
+    if (!sel) return;
+    var grupo = document.getElementById('grupoPresupuesto');
+    var aviso = document.getElementById('avisoPrecioFijo');
+    var monto = document.getElementById('precioFijoMonto');
+
+    function aplicarPrecioFijo() {
+        var op = sel.options[sel.selectedIndex];
+        var fijo = op && op.getAttribute('data-fijo') === '1';
+        if (fijo) {
+            var precio = parseFloat(op.getAttribute('data-precio') || '0');
+            monto.textContent = precio.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+            grupo.classList.add('d-none');
+            aviso.classList.remove('d-none');
+            var pres = grupo.querySelector('select[name="presupuesto"]');
+            if (pres) pres.disabled = true;
+        } else {
+            grupo.classList.remove('d-none');
+            aviso.classList.add('d-none');
+            var pres2 = grupo.querySelector('select[name="presupuesto"]');
+            if (pres2) pres2.disabled = false;
+        }
+    }
+
+    sel.addEventListener('change', aplicarPrecioFijo);
+    aplicarPrecioFijo();
+})();
+</script>
 
 <?php require_once 'includes/pie.php'; ?>

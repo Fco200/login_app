@@ -232,6 +232,33 @@ function slugify(string $texto): string {
     return strtolower($texto ?? '');
 }
 
+/*
+ * Genera un slug basado en el título que NUNCA choque con los ya existentes
+ * en la tabla indicada (las columnas slug son UNIQUE y un duplicado lanzaba
+ * una excepción PDO sin capturar que dejaba la página en blanco).
+ * Si el slug base ya está ocupado agrega -2, -3… hasta encontrar uno libre.
+ */
+function slug_unico(string $titulo, string $tabla, ?int $excluirId = null): string {
+    $base = slugify($titulo);
+    if ($base === '') {
+        $base = 'registro-' . date('YmdHis');
+    }
+    $slug = $base;
+    $n = 2;
+    while (true) {
+        $sql = "SELECT COUNT(*) FROM $tabla WHERE slug = ?" . ($excluirId ? ' AND id <> ?' : '');
+        $stmt = $GLOBALS['pdo']->prepare($sql);
+        $stmt->execute($excluirId ? [$slug, $excluirId] : [$slug]);
+        if ((int)$stmt->fetchColumn() === 0) {
+            return $slug;
+        }
+        $slug = $base . '-' . $n++;
+        if ($n > 500) {
+            return $base . '-' . bin2hex(random_bytes(4));
+        }
+    }
+}
+
 function formatear_precio(?float $cantidad): string {
     return $cantidad > 0 ? '$' . number_format($cantidad, 0) : 'A convenir';
 }

@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             header('Location: productos.php');
             exit;
         }
-        $slugP = slugify($tituloP) ?: ('producto-' . date('YmdHis'));
+        $slugP = slug_unico($tituloP, 'productos', $id > 0 ? $id : null);
         $descripcionP = trim($_POST['descripcion'] ?? '');
         $precioP = (float)($_POST['precio'] ?? 0);
         $categoriaP = trim($_POST['categoria'] ?? '');
@@ -45,27 +45,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             }
         }
 
-        if ($id > 0) {
-            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, referencia=?, stock=?, activo=? WHERE id=?')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP, $id]);
-            flash('Producto actualizado correctamente.');
-        } else {
-            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, referencia, stock, activo) VALUES (?,?,?,?,?,?,?,?,?)')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP]);
-            flash('Producto creado correctamente.');
+        try {
+            if ($id > 0) {
+                $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, referencia=?, stock=?, activo=? WHERE id=?')
+                    ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP, $id]);
+                flash('Producto actualizado correctamente.');
+            } else {
+                $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, referencia, stock, activo) VALUES (?,?,?,?,?,?,?,?,?)')
+                    ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP]);
+                flash('Producto creado correctamente.');
+            }
+        } catch (PDOException $e) {
+            flash('No se pudo guardar el producto. Verifica los datos e intenta de nuevo.', 'danger');
         }
         header('Location: productos.php');
         exit;
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        $stmtP = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
-        $stmtP->execute([(int)$_POST['id']]);
-        $prod = $stmtP->fetch();
-        if ($prod) eliminar_archivo($prod['imagen']);
-        $pdo->prepare('DELETE FROM carrito WHERE producto_id = ?')->execute([(int)$_POST['id']]);
-        $pdo->prepare('DELETE FROM productos WHERE id = ?')->execute([(int)$_POST['id']]);
-        flash('Producto eliminado.', 'warning');
+        try {
+            $stmtP = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
+            $stmtP->execute([(int)$_POST['id']]);
+            $prod = $stmtP->fetch();
+            if ($prod) eliminar_archivo($prod['imagen']);
+            $pdo->prepare('DELETE FROM carrito WHERE producto_id = ?')->execute([(int)$_POST['id']]);
+            $pdo->prepare('DELETE FROM productos WHERE id = ?')->execute([(int)$_POST['id']]);
+            flash('Producto eliminado.', 'warning');
+        } catch (PDOException $e) {
+            flash('No se pudo eliminar el producto.', 'danger');
+        }
         header('Location: productos.php');
         exit;
     }

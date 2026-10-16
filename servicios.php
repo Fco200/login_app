@@ -26,7 +26,13 @@ require_once 'includes/cabecera.php';
                             <p class="small text-secondary mb-3"><?= e($s['descripcion']) ?></p>
                         <?php endif; ?>
                         <?php if ($s['precio_desde']): ?>
-                            <p class="precio-desde mt-auto mb-3">Desde <b><?= e(formatear_precio((float)$s['precio_desde'])) ?></b></p>
+                            <p class="precio-desde mt-auto mb-3">
+                                <?php if (!empty($s['precio_fijo'])): ?>
+                                    Precio fijo: <b><?= e(formatear_precio((float)$s['precio_desde'])) ?></b>
+                                <?php else: ?>
+                                    Desde <b><?= e(formatear_precio((float)$s['precio_desde'])) ?></b>
+                                <?php endif; ?>
+                            </p>
                         <?php endif; ?>
                         <div class="d-grid gap-2 mt-auto">
                             <a href="solicitud.php?servicio=<?= e($s['slug']) ?>" class="btn btn-fv w-100">Solicitar este servicio <i class="bi bi-arrow-right ms-1"></i></a>

@@ -17,27 +17,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $icono = trim($_POST['icono'] ?: 'bi-code-slash');
         $categoria = trim($_POST['categoria'] ?: 'desarrollo-web');
         $precio = ($_POST['precio_desde'] ?? '') !== '' ? (float)$_POST['precio_desde'] : null;
+        $precioFijo = isset($_POST['precio_fijo']) ? 1 : 0;
         $destaque = isset($_POST['destaque']) ? 1 : 0;
         $activo = isset($_POST['activo']) ? 1 : 0;
 
-        $slugBase = slugify($tituloS) ?: ('servicio-' . date('YmdHis'));
+        $slugBase = slug_unico($tituloS, 'servicios', $id > 0 ? $id : null);
 
-        if ($id > 0) {
-            $sql = "UPDATE servicios SET titulo=?, descripcion_corta=?, descripcion=?, icono=?, categoria=?, precio_desde=?, destaque=?, activo=? WHERE id=?";
-            $pdo->prepare($sql)->execute([$tituloS, $corta, $desc, $icono, $categoria, $precio, $destaque, $activo, $id]);
-            flash('Servicio actualizado correctamente.');
-        } else {
-            $sql = "INSERT INTO servicios (titulo, slug, descripcion_corta, descripcion, icono, categoria, precio_desde, destaque, activo) VALUES (?,?,?,?,?,?,?,?,?)";
-            $pdo->prepare($sql)->execute([$tituloS, $slugBase, $corta, $desc, $icono, $categoria, $precio, $destaque, $activo]);
-            flash('Servicio creado correctamente.');
+        try {
+            if ($id > 0) {
+                $sql = "UPDATE servicios SET titulo=?, descripcion_corta=?, descripcion=?, icono=?, categoria=?, precio_desde=?, precio_fijo=?, destaque=?, activo=? WHERE id=?";
+                $pdo->prepare($sql)->execute([$tituloS, $corta, $desc, $icono, $categoria, $precio, $precioFijo, $destaque, $activo, $id]);
+                flash('Servicio actualizado correctamente.');
+            } else {
+                $sql = "INSERT INTO servicios (titulo, slug, descripcion_corta, descripcion, icono, categoria, precio_desde, precio_fijo, destaque, activo) VALUES (?,?,?,?,?,?,?,?,?,?)";
+                $pdo->prepare($sql)->execute([$tituloS, $slugBase, $corta, $desc, $icono, $categoria, $precio, $precioFijo, $destaque, $activo]);
+                flash('Servicio creado correctamente.');
+            }
+        } catch (PDOException $e) {
+            flash('No se pudo guardar el servicio. Verifica los datos e intenta de nuevo.', 'danger');
         }
         header('Location: servicios.php');
         exit;
     }
 
     if ($accion === 'eliminar' && isset($_POST['id'])) {
-        $pdo->prepare('DELETE FROM servicios WHERE id = ?')->execute([(int)$_POST['id']]);
-        flash('Servicio eliminado.', 'warning');
+        try {
+            $pdo->prepare('DELETE FROM servicios WHERE id = ?')->execute([(int)$_POST['id']]);
+            flash('Servicio eliminado.', 'warning');
+        } catch (PDOException $e) {
+            flash('No se pudo eliminar el servicio.', 'danger');
+        }
         header('Location: servicios.php');
         exit;
     }
@@ -70,7 +79,12 @@ if (isset($_GET['editar'])) {
                     <tr>
                         <td class="ps-3"><i class="bi <?= e($s['icono']) ?> me-2 text-primary"></i><b><?= e($s['titulo']) ?></b></td>
                         <td class="small"><?= e($s['categoria']) ?></td>
-                        <td><?= e(formatear_precio((float)$s['precio_desde'])) ?></td>
+                        <td>
+                            <?= e(formatear_precio((float)$s['precio_desde'])) ?>
+                            <?php if (!empty($s['precio_fijo'])): ?>
+                                <span class="badge text-bg-info ms-1" title="Precio fijo: al solicitarlo no se pide presupuesto">Precio fijo</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="small text-muted" style="max-width:260px;"><?= e(mb_strimwidth($s['descripcion_corta'], 0, 70, '…')) ?></td>
                         <td><?= $s['destaque'] ? '<i class="bi bi-star-fill text-warning"></i>' : '—' ?></td>
                         <td><?= $s['activo'] ? '<span class="badge badge-estado text-bg-success">Activo</span>' : '<span class="badge badge-estado text-bg-secondary">Oculto</span>' ?></td>
@@ -126,6 +140,13 @@ if (isset($_GET['editar'])) {
                         <input type="number" step="0.01" min="0" name="precio_desde" id="s_precio" class="form-control">
                         <small class="text-muted">Vacío = "A convenir"</small>
                     </div>
+                    <div class="col-md-4 d-flex align-items-center pb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="precio_fijo" id="s_precio_fijo" value="1">
+                            <label class="form-check-label small" for="s_precio_fijo">Precio fijo (no cotizar)</label>
+                        </div>
+                    </div>
+                    <small class="text-muted mt-0 mb-2">Si marcas "precio fijo", al solicitar este servicio el formulario no pedirá presupuesto: se usará este precio automáticamente.</small>
                     <div class="col-md-4">
                         <label class="form-label small fw-semibold">Icono (Bootstrap Icons)</label>
                         <input type="text" name="icono" id="s_icono" class="form-control" value="bi-code-slash" placeholder="bi-rocket-takeoff">
@@ -173,6 +194,7 @@ function limpiarFormulario(mostrar) {
     document.getElementById('s_desc').value = '';
     document.getElementById('s_destaque').checked = false;
     document.getElementById('s_activo').checked = true;
+    document.getElementById('s_precio_fijo').checked = false;
     document.getElementById('tituloModal').textContent = 'Nuevo servicio';
 }
 function editarServicio(s) {
@@ -185,6 +207,7 @@ function editarServicio(s) {
     document.getElementById('s_desc').value = s.descripcion || '';
     document.getElementById('s_destaque').checked = s.destaque == 1;
     document.getElementById('s_activo').checked = s.activo == 1;
+    document.getElementById('s_precio_fijo').checked = s.precio_fijo == 1;
     document.getElementById('tituloModal').textContent = 'Editar servicio';
     new bootstrap.Modal(document.getElementById('modalServicio')).show();
 }
