@@ -7,6 +7,19 @@ require_once __DIR__ . '/includes/cabecera.php';
 
 /* ---------- Responder / cambiar estado ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    /* Eliminar un reporte de soporte (duda, queja, problema o sugerencia) */
+    if (($_POST['accion'] ?? '') === 'eliminar') {
+        $idDel = (int)($_POST['id'] ?? 0);
+        if ($idDel > 0) {
+            $pdo->prepare('DELETE FROM soporte WHERE id = ?')->execute([$idDel]);
+            flash('Reporte #' . $idDel . ' eliminado.', 'warning');
+        } else {
+            flash('Reporte no encontrado.', 'danger');
+        }
+        header('Location: soporte.php');
+        exit;
+    }
+
     $id = (int)($_POST['id'] ?? 0);
     $sql = 'SELECT * FROM soporte WHERE id = ?';
     $st = $pdo->prepare($sql);
@@ -99,6 +112,12 @@ $nuevos = (int)contar_registros('soporte', "estado = 'nuevo'");
                             <td class="small text-muted"><?= e(date('d/m/Y H:i', strtotime($r['creado_en']))) ?></td>
                             <td class="text-end pe-4">
                                 <button class="btn btn-sm btn-outline-fv" data-bs-toggle="modal" data-bs-target="#verSoporte<?= (int)$r['id'] ?>"><i class="bi bi-eye me-1"></i>Ver / responder</button>
+                                <form method="POST" class="d-inline" onsubmit="return confirm('¿Eliminar este reporte de soporte? Esta acción no se puede deshacer.')">
+                                    <?= campo_csrf() ?>
+                                    <input type="hidden" name="accion" value="eliminar">
+                                    <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+                                    <button class="btn btn-sm btn-outline-danger" title="Eliminar reporte"><i class="bi bi-trash3"></i></button>
+                                </form>
                             </td>
                         </tr>
                     <?php endforeach; ?>

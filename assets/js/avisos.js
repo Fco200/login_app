@@ -168,9 +168,15 @@ window.FV = window.FV || {};
     document.addEventListener('submit', function (evt) {
         const form = evt.target && evt.target.closest ? evt.target.closest('form.js-ajax') : null;
         if (!form) return;
-        const esChat = form.classList.contains('js-chat');
 
         evt.preventDefault();
+
+        /* Guardia anti doble-envío: evita que dos disparos del evento (doble
+           clic, doble listener o reenvío) registren la acción dos veces. */
+        if (form.dataset.enviando === '1') return;
+        form.dataset.enviando = '1';
+
+        const esChat = form.classList.contains('js-chat');
 
         const boton = form.querySelector('button[type="submit"]');
         const etiquetaOriginal = boton ? boton.innerHTML : null;
@@ -197,6 +203,7 @@ window.FV = window.FV || {};
             return resp.text().then(function () { return { json: null }; });
         }).then(function (r) {
             FV.cargando(false);
+            form.dataset.enviando = '';
             if (boton) { boton.disabled = disabledOriginal; boton.innerHTML = etiquetaOriginal; }
 
             if (!r.json) { form.submit(); return; }
@@ -215,6 +222,7 @@ window.FV = window.FV || {};
             FV.overlay(datos);
         }).catch(function () {
             FV.cargando(false);
+            form.dataset.enviando = '';
             if (boton) { boton.disabled = disabledOriginal; boton.innerHTML = etiquetaOriginal; }
             form.submit();
         });

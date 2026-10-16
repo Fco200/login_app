@@ -15,6 +15,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verificar_csrf() || !empty($_POST['empresa'])) {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
+
+    /* Eliminar (archivar) una conversación completa */
+    if (($_POST['accion'] ?? '') === 'eliminar_conversacion') {
+        $usuarioId = (int)($_POST['usuario_id'] ?? 0);
+        if ($usuarioId <= 0) {
+            responder(['ok' => false, 'mensaje' => 'Conversación no válida.', 'tipo' => 'danger']);
+        }
+        $pdo->prepare('DELETE FROM mensajes_portal WHERE usuario_id = ?')->execute([$usuarioId]);
+        responder(['ok' => true, 'mensaje' => 'Conversación eliminada.', 'tipo' => 'success', 'destino' => 'mensajes_portal.php']);
+    }
+
     $texto = trim($_POST['mensaje'] ?? '');
     $usuarioId = (int)($_POST['usuario_id'] ?? 0);
 
@@ -113,7 +124,10 @@ if ($selUsuario > 0) {
                     <?= $selUsuario > 0 && !empty($datosCliente) ? e($datosCliente['nombre']) . ' — ' . e($datosCliente['email']) : 'Selecciona una conversación' ?>
                 </b>
                 <?php if ($selUsuario > 0 && $conversacion): ?>
-                    <a href="mailto:<?= e($datosCliente['email']) ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-envelope me-1"></i>Correo</a>
+                    <div class="d-flex gap-1">
+                        <a href="mailto:<?= e($datosCliente['email']) ?>" class="btn btn-sm btn-outline-secondary"><i class="bi bi-envelope me-1"></i>Correo</a>
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalBorrarConv"><i class="bi bi-trash3 me-1"></i>Eliminar conversación</button>
+                    </div>
                 <?php endif; ?>
             </div>
             <div class="card-body">
@@ -160,5 +174,30 @@ if ($selUsuario > 0) {
         </div>
     </div>
 </div>
+
+<?php if ($selUsuario > 0 && $conversacion): ?>
+<div class="modal fade" id="modalBorrarConv" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="mensajes_portal.php">
+                <?= campo_csrf() ?>
+                <input type="hidden" name="accion" value="eliminar_conversacion">
+                <input type="hidden" name="usuario_id" value="<?= $selUsuario ?>">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-trash3 me-2 text-danger"></i>Eliminar conversación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">¿Eliminar toda la conversación con <b><?= e($datosCliente['nombre'] ?? 'el cliente') ?></b>? Se borrarán todos los mensajes de este chat y no se puede deshacer.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger"><i class="bi bi-trash3 me-1"></i>Eliminar conversación</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/includes/pie.php'; ?>

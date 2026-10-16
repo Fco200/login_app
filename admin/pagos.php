@@ -122,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $descripcionP = trim($_POST['descripcion'] ?? '');
         $precioP = (float)($_POST['precio'] ?? 0);
         $categoriaP = trim($_POST['categoria'] ?? '');
+        $referenciaP = trim($_POST['referencia'] ?? '');
         $stockP = (int)($_POST['stock'] ?? 0);
         $activoP = isset($_POST['activo']) ? 1 : 0;
         $imagenP = null;
@@ -146,12 +147,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         }
 
         if ($id > 0) {
-            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, stock=?, activo=? WHERE id=?')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP, $id]);
+            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, referencia=?, stock=?, activo=? WHERE id=?')
+                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP, $id]);
             flash('Producto actualizado.');
         } else {
-            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, stock, activo) VALUES (?,?,?,?,?,?,?,?)')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP]);
+            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, referencia, stock, activo) VALUES (?,?,?,?,?,?,?,?,?)')
+                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP]);
             flash('Producto creado.');
         }
         header('Location: pagos.php');
@@ -176,7 +177,7 @@ $metodos = $pdo->query('SELECT * FROM metodos_pago ORDER BY id ASC')->fetchAll()
 $productos = $pdo->query('SELECT * FROM productos ORDER BY id DESC')->fetchAll();
 $pagos = $pdo->query('SELECT p.*, mp.nombre AS metodo_nombre, u.nombre AS cliente_nombre, u.email AS cliente_email,
                              s.tipo_servicio,
-                             pi.id AS proyecto_id, pi.total_proyecto, pi.pagado_total, pi.saldo_restante, pi.estado AS proyecto_estado
+                             pi.id AS proyecto_id, pi.folio AS proyecto_folio, pi.total_proyecto, pi.pagado_total, pi.saldo_restante, pi.estado AS proyecto_estado
                       FROM pagos p
                       LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
                       LEFT JOIN usuarios u ON p.usuario_id = u.id
@@ -368,7 +369,7 @@ $estadoBadge = [
             <div class="table-responsive">
                 <table class="table table-hover tabla-admin mb-0">
                     <thead class="table-light">
-                        <tr><th class="ps-3">Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="text-end pe-3">Acciones</th></tr>
+                        <tr><th class="ps-3">Producto</th><th>Categoría</th><th>Referencia</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="text-end pe-3">Acciones</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($productos as $pr): ?>
@@ -382,6 +383,7 @@ $estadoBadge = [
                                     <b><?= e($pr['titulo']) ?></b>
                                 </td>
                                 <td class="small"><?= e($pr['categoria'] ?: '—') ?></td>
+                                <td class="small font-monospace"><?= e($pr['referencia'] ?: '—') ?></td>
                                 <td class="fw-semibold">$<?= number_format((float)$pr['precio'], 0) ?></td>
                                 <td><?= (int)$pr['stock'] > 0 ? (int)$pr['stock'] : '<span class="badge text-bg-warning">Sin stock</span>' ?></td>
                                 <td><?= $pr['activo'] ? '<span class="badge badge-estado text-bg-success">Activo</span>' : '<span class="badge badge-estado text-bg-secondary">Oculto</span>' ?></td>
@@ -473,15 +475,19 @@ $estadoBadge = [
                         <label class="form-label small fw-semibold">Precio (MXN) *</label>
                         <input type="number" name="precio" id="p_precio" class="form-control" min="0" step="0.01" required>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label small fw-semibold">Categoría</label>
                         <input type="text" name="categoria" id="p_categoria" class="form-control" placeholder="Plantillas">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Referencia / SKU</label>
+                        <input type="text" name="referencia" id="p_referencia" class="form-control font-monospace" placeholder="PLANT-001">
+                    </div>
+                    <div class="col-md-2">
                         <label class="form-label small fw-semibold">Stock</label>
                         <input type="number" name="stock" id="p_stock" class="form-control" min="0" value="0">
                     </div>
-                    <div class="col-md-3 d-flex align-items-end pb-2">
+                    <div class="col-md-2 d-flex align-items-end pb-2">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="activo" id="p_activo" value="1" checked>
                             <label class="form-check-label small" for="p_activo">Visible</label>
@@ -535,7 +541,7 @@ $estadoBadge = [
                     <?php if (!empty($p['proyecto_id'])): ?>
                         <div class="border rounded bg-light p-2 small mb-3">
                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                <b><i class="bi bi-code-slash me-1 text-primary"></i>Proyecto #<?= (int)$p['proyecto_id'] ?></b>
+                                <b><i class="bi bi-code-slash me-1 text-primary"></i><?= e($p['proyecto_folio'] ?: 'Proyecto #' . (int)$p['proyecto_id']) ?></b>
                                 <?php if (($p['proyecto_estado'] ?? '') === 'liquidado'): ?>
                                     <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Liquidado</span>
                                 <?php endif; ?>
@@ -653,6 +659,7 @@ function limpiarProducto(mostrar) {
     document.getElementById('p_titulo').value = '';
     document.getElementById('p_precio').value = '';
     document.getElementById('p_categoria').value = '';
+    document.getElementById('p_referencia').value = '';
     document.getElementById('p_stock').value = 0;
     document.getElementById('p_descripcion').value = '';
     document.getElementById('p_activo').checked = true;
@@ -663,6 +670,7 @@ function editarProducto(pr) {
     document.getElementById('p_titulo').value = pr.titulo;
     document.getElementById('p_precio').value = pr.precio;
     document.getElementById('p_categoria').value = pr.categoria || '';
+    document.getElementById('p_referencia').value = pr.referencia || '';
     document.getElementById('p_stock').value = pr.stock || 0;
     document.getElementById('p_descripcion').value = pr.descripcion || '';
     document.getElementById('p_activo').checked = pr.activo == 1;

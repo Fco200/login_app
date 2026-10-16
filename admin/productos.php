@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $descripcionP = trim($_POST['descripcion'] ?? '');
         $precioP = (float)($_POST['precio'] ?? 0);
         $categoriaP = trim($_POST['categoria'] ?? '');
+        $referenciaP = trim($_POST['referencia'] ?? '');
         $stockP = (int)($_POST['stock'] ?? 0);
         $activoP = isset($_POST['activo']) ? 1 : 0;
         $imagenP = null;
@@ -45,12 +46,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         }
 
         if ($id > 0) {
-            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, stock=?, activo=? WHERE id=?')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP, $id]);
+            $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, referencia=?, stock=?, activo=? WHERE id=?')
+                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP, $id]);
             flash('Producto actualizado correctamente.');
         } else {
-            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, stock, activo) VALUES (?,?,?,?,?,?,?,?)')
-                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $stockP, $activoP]);
+            $pdo->prepare('INSERT INTO productos (titulo, slug, descripcion, precio, imagen, categoria, referencia, stock, activo) VALUES (?,?,?,?,?,?,?,?,?)')
+                ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP]);
             flash('Producto creado correctamente.');
         }
         header('Location: productos.php');
@@ -90,11 +91,11 @@ if (isset($_GET['editar'])) {
     <div class="table-responsive">
         <table class="table table-hover tabla-admin mb-0">
             <thead class="table-light">
-                <tr><th class="ps-3">Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="text-end pe-3">Acciones</th></tr>
+                <tr><th class="ps-3">Producto</th><th>Categoría</th><th>Referencia</th><th>Precio</th><th>Stock</th><th>Estado</th><th class="text-end pe-3">Acciones</th></tr>
             </thead>
             <tbody>
                 <?php if (!$productos): ?>
-                    <tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-box-seam me-1"></i>Aún no hay productos.</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-box-seam me-1"></i>Aún no hay productos.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($productos as $pr): ?>
                     <tr>
@@ -107,6 +108,7 @@ if (isset($_GET['editar'])) {
                             <b><?= e($pr['titulo']) ?></b>
                         </td>
                         <td class="small"><?= e($pr['categoria'] ?: '—') ?></td>
+                        <td class="small font-monospace"><?= e($pr['referencia'] ?: '—') ?></td>
                         <td class="fw-semibold">$<?= number_format((float)$pr['precio'], 0) ?></td>
                         <td><?= (int)$pr['stock'] > 0 ? (int)$pr['stock'] : '<span class="badge text-bg-warning">Sin stock</span>' ?></td>
                         <td><?= $pr['activo'] ? '<span class="badge badge-estado text-bg-success">Activo</span>' : '<span class="badge badge-estado text-bg-secondary">Oculto</span>' ?></td>
@@ -151,6 +153,10 @@ if (isset($_GET['editar'])) {
                         <label class="form-label small fw-semibold">Categoría</label>
                         <input type="text" name="categoria" id="p_categoria" class="form-control" placeholder="Plantillas">
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Referencia / SKU</label>
+                        <input type="text" name="referencia" id="p_referencia" class="form-control font-monospace" placeholder="PLANT-001">
+                    </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold">Stock</label>
                         <input type="number" name="stock" id="p_stock" class="form-control" min="0" value="0">
@@ -194,6 +200,7 @@ function limpiarProducto() {
     document.getElementById('p_titulo').value = '';
     document.getElementById('p_precio').value = '';
     document.getElementById('p_categoria').value = '';
+    document.getElementById('p_referencia').value = '';
     document.getElementById('p_stock').value = '0';
     document.getElementById('p_descripcion').value = '';
     document.getElementById('p_activo').checked = true;
@@ -204,6 +211,7 @@ function editarProducto(p) {
     document.getElementById('p_titulo').value = p.titulo;
     document.getElementById('p_precio').value = p.precio;
     document.getElementById('p_categoria').value = p.categoria || '';
+    document.getElementById('p_referencia').value = p.referencia || '';
     document.getElementById('p_stock').value = p.stock || 0;
     document.getElementById('p_descripcion').value = p.descripcion || '';
     document.getElementById('p_activo').checked = p.activo == 1;

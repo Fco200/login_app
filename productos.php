@@ -38,6 +38,7 @@ require_once 'includes/cabecera.php';
                             <div class="p-4 d-flex flex-column flex-grow-1">
                                 <?php if ($p['categoria']): ?><span class="badge text-bg-light text-uppercase small mb-2 align-self-start"><?= e($p['categoria']) ?></span><?php endif; ?>
                                 <h5><?= e($p['titulo']) ?></h5>
+                                <?php if (!empty($p['referencia'])): ?><p class="small text-muted mb-2"><i class="bi bi-upc-scan me-1"></i>Ref: <span class="font-monospace"><?= e($p['referencia']) ?></span></p><?php endif; ?>
                                 <?php if ($p['descripcion']): ?>
                                     <p class="small text-secondary mb-3"><?= e($p['descripcion']) ?></p>
                                 <?php endif; ?>

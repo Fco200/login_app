@@ -23,8 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                 if (!$existeProj->fetch()) {
                     /* Total del proyecto desde el presupuesto de la solicitud. */
                     $totalProyecto = proyecto_total_parsear($solChk['presupuesto'] ?? '');
-                    $pdo->prepare('INSERT INTO proyectos_inicio (solicitud_id, usuario_id, descripcion_proyecto, requisitos, objetivos, alcance, cronograma, entregables, total_proyecto, saldo_restante) VALUES (?,?,?,?,?,?,?,?,?,?)')
-                        ->execute([
+                    $stIns = $pdo->prepare('INSERT INTO proyectos_inicio (solicitud_id, usuario_id, descripcion_proyecto, requisitos, objetivos, alcance, cronograma, entregables, total_proyecto, saldo_restante) VALUES (?,?,?,?,?,?,?,?,?,?)');
+                    $stIns->execute([
                             $solicitudId,
                             (int)$usuario['id'],
                             trim($_POST['descripcion_proyecto'] ?? ''),
@@ -36,6 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                             $totalProyecto > 0 ? $totalProyecto : 0,
                             $totalProyecto > 0 ? $totalProyecto : 0,
                         ]);
+                    /* Folio único del proceso (PRY-0001, PRY-0002, ...). */
+                    $nuevoProyectoId = (int)$pdo->lastInsertId();
+                    $pdo->prepare('UPDATE proyectos_inicio SET folio = ? WHERE id = ?')
+                        ->execute(['PRY-' . str_pad((string)$nuevoProyectoId, 4, '0', STR_PAD_LEFT), $nuevoProyectoId]);
                     notificar_admins('proyecto', 'Documentación de proyecto recibida', $usuario['nombre'] . ' inició la documentación para la solicitud #' . $solicitudId . '.', url_sitio('admin/solicitudes.php'));
                     responder(['ok' => true, 'mensaje' => 'Documentación del proyecto enviada correctamente. Ahora realiza el anticipo para iniciar.', 'tipo' => 'success', 'destino' => url_sitio('portal/solicitudes.php')]);
                 } else {

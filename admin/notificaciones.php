@@ -23,6 +23,22 @@ if (isset($_GET['todas'])) {
     exit;
 }
 
+/* Eliminar una notificación */
+if (isset($_GET['eliminar']) && (int)$_GET['eliminar'] > 0) {
+    $pdo->prepare('DELETE FROM notificaciones WHERE id = ? AND usuario_id = ?')
+        ->execute([(int)$_GET['eliminar'], $miId]);
+    header('Location: notificaciones.php');
+    exit;
+}
+
+/* Eliminar todas las notificaciones */
+if (isset($_GET['eliminar_todas'])) {
+    $pdo->prepare('DELETE FROM notificaciones WHERE usuario_id = ?')
+        ->execute([$miId]);
+    header('Location: notificaciones.php');
+    exit;
+}
+
 $stmt = $pdo->prepare('SELECT * FROM notificaciones WHERE usuario_id = ? ORDER BY creado_en DESC, id DESC LIMIT 80');
 $stmt->execute([$miId]);
 $notificaciones = $stmt->fetchAll();
@@ -46,6 +62,9 @@ $iconos = [
     </div>
     <?php if (count(array_filter($notificaciones, fn($n) => !$n['leida'])) > 0): ?>
         <a href="notificaciones.php?todas=1" class="btn btn-sm btn-outline-fv"><i class="bi bi-check-all me-1"></i>Marcar todas como leídas</a>
+    <?php endif; ?>
+    <?php if ($notificaciones): ?>
+        <a href="notificaciones.php?eliminar_todas=1" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar todas tus notificaciones? Esta acción no se puede deshacer.');"><i class="bi bi-trash3 me-1"></i>Eliminar todas</a>
     <?php endif; ?>
 </div>
 
@@ -73,6 +92,7 @@ $iconos = [
                         <?php if (!$n['leida']): ?>
                             <a href="notificaciones.php?marcar=<?= (int)$n['id'] ?>" class="btn btn-sm btn-outline-success ms-1" title="Marcar como leída"><i class="bi bi-check-lg"></i></a>
                         <?php endif; ?>
+                        <a href="notificaciones.php?eliminar=<?= (int)$n['id'] ?>" class="btn btn-sm btn-outline-danger ms-1" title="Eliminar notificación" onclick="return confirm('¿Eliminar esta notificación?');"><i class="bi bi-trash3"></i></a>
                     </div>
                 </div>
             </li>

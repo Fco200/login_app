@@ -651,6 +651,9 @@ function proyecto_recalcular_saldo(int $proyectoId, ?PDO $pdo = null): array {
             if (in_array($estado, ['documentacion', 'anticipo_pendiente', 'en_desarrollo', 'liquidado', 'completado'], true)) {
                 $estado = 'liquidado';
             }
+        } elseif ($total > 0 && $saldo > 0.01 && $estado === 'liquidado') {
+            /* Un pago aprobado se eliminó/rechazó: vuelve a desarrollo. */
+            $estado = 'en_desarrollo';
         }
         $pdo->prepare('UPDATE proyectos_inicio SET pagado_total = ?, saldo_restante = ?, estado = ? WHERE id = ?')
             ->execute([$pagado, $saldo, $estado, $proyectoId]);
@@ -916,6 +919,16 @@ function pago_aprobar_o_rechazar(int $pagoId, string $estado, string $notasAdmin
 /** Folio PAG-00001 para el texto de bitácoras. */
 function folio_pago_txt(array $pago): string {
     return 'PAG-' . str_pad((string)($pago['id'] ?? 0), 5, '0', STR_PAD_LEFT);
+}
+
+/** Folio legible de un proyecto/proceso (PRY-0001). Si el registro aún no
+ *  tiene folio, lo deriva del id. */
+function folio_proyecto_txt(array $proyecto): string {
+    $folio = trim((string)($proyecto['folio'] ?? ''));
+    if ($folio !== '') {
+        return $folio;
+    }
+    return 'PRY-' . str_pad((string)($proyecto['id'] ?? 0), 4, '0', STR_PAD_LEFT);
 }
 
 /** Monto formateado para textos de bitácoras. */

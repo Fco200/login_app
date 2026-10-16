@@ -97,6 +97,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         responder(['ok' => false, 'mensaje' => $r['mensaje'], 'tipo' => 'danger']);
     }
 
+    if ($accion === 'eliminar_pago') {
+        $pagoId = (int)($_POST['id'] ?? 0);
+        $stDel = $pdo->prepare('SELECT * FROM pagos WHERE id = ? AND usuario_id = ?');
+        $stDel->execute([$pagoId, (int)$usuario['id']]);
+        $pagoDel = $stDel->fetch();
+        if (!$pagoDel) {
+            responder(['ok' => false, 'mensaje' => 'El pago no existe o no te pertenece.', 'tipo' => 'danger']);
+        }
+        eliminar_archivo($pagoDel['comprobante']);
+        $pdo->prepare('DELETE FROM pagos WHERE id = ?')->execute([$pagoId]);
+
+        /* Si el pago aprobado estaba ligado a un proyecto, recalcular su saldo. */
+        $proyDel = (int)($pagoDel['proyecto_id'] ?? 0);
+        if ($proyDel > 0 && $pagoDel['estado'] === 'aprobado') {
+            if (($pagoDel['tipo_pago'] ?? '') === 'anticipo') {
+                proyecto_descontar_anticipo($proyDel, (float)$pagoDel['monto']);
+            }
+            proyecto_recalcular_saldo($proyDel);
+            registrar_historial_proyecto($proyDel, 'pago_eliminado', 'El cliente eliminó el pago ' . folio_pago_txt($pagoDel) . ' de $' . number_format((float)$pagoDel['monto'], 2) . ' MXN.', (int)$usuario['id']);
+        }
+        responder(['ok' => true, 'mensaje' => 'Pago eliminado de tu historial.', 'tipo' => 'success', 'destino' => url_sitio('portal/pagos.php')]);
+    }
+
     if ($accion === 'pagar_producto') {
         $metodoId = (int)($_POST['metodo_pago_id'] ?? 0);
         $monto = (float)($_POST['monto'] ?? 0);
@@ -270,7 +293,9 @@ $tipoPago = [
                         <div class="card border-0 bg-light h-100">
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <b><i class="bi bi-code-slash me-1 text-primary"></i><?= e($proj['tipo_servicio'] ?: 'Proyecto #' . (int)$proj['id']) ?></b>
+                                    <b><i class="bi bi-code-slash me-1 text-primary"></i><?= e($proj['tipo_servicio'] ?: 'Proyecto #' . (int)$proj['id']) ?>
+                                        <span class="badge text-bg-light border font-monospace ms-1"><i class="bi bi-hash"></i><?= e(folio_proyecto_txt($proj)) ?></span>
+                                    </b>
                                     <?php if ($esLiquidado): ?>
                                         <span class="badge text-bg-success"><i class="bi bi-check-circle me-1"></i>Liquidado / Finalizado</span>
                                     <?php elseif ($estado === 'en_desarrollo'): ?>
@@ -400,6 +425,7 @@ $tipoPago = [
                             <th>Estado</th>
                             <th class="text-end pe-3">Comprobante</th>
                             <th class="text-end pe-3">Recibo</th>
+                            <th class="text-end pe-3">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -424,6 +450,14 @@ $tipoPago = [
                                     <?php else: ?>
                                         <span class="text-muted small" title="El recibo se habilita al aprobarse el pago">—</span>
                                     <?php endif; ?>
+                                </td>
+                                <td class="text-end pe-3">
+                                    <form method="POST" action="pagos.php" class="d-inline" onsubmit="return confirm('¿Eliminar este pago de tu historial?<?= $pg['estado'] === 'aprobado' ? ' Este pago ya estaba aprobado y se recalculará el saldo de tu proyecto.' : '' ?>');">
+                                        <?= campo_csrf() ?>
+                                        <input type="hidden" name="accion" value="eliminar_pago">
+                                        <input type="hidden" name="id" value="<?= (int)$pg['id'] ?>">
+                                        <button class="btn btn-sm btn-outline-danger" title="Eliminar pago"><i class="bi bi-trash3"></i></button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

@@ -24,6 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         responder(['ok' => false, 'mensaje' => 'La sesión expiró, intenta de nuevo.', 'tipo' => 'danger']);
     }
 
+    /* Eliminar la conversación completa del cliente */
+    if (($_POST['accion'] ?? '') === 'eliminar_conversacion') {
+        $pdo->prepare('DELETE FROM mensajes_portal WHERE usuario_id = ?')->execute([(int)$usuario['id']]);
+        responder(['ok' => true, 'mensaje' => 'Tu conversación fue eliminada.', 'tipo' => 'success', 'destino' => url_sitio('portal/mensajes.php')]);
+    }
+
     $texto = trim($_POST['mensaje'] ?? '');
     if ($texto === '') {
         responder(['ok' => false, 'mensaje' => 'Escribe un mensaje antes de enviar.', 'tipo' => 'danger']);
@@ -73,6 +79,29 @@ require_once __DIR__ . '/includes/cabecera.php';
         <div>
             <b class="d-block small"><?= e(SITE_NOMBRE) ?> — Atención a clientes</b>
             <small class="text-success"><i class="bi bi-circle-fill me-1" style="font-size:.6rem;"></i>En línea</small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-bs-toggle="modal" data-bs-target="#modalBorrarChat"><i class="bi bi-trash3 me-1"></i>Eliminar conversación</button>
+    </div>
+
+    <div class="modal fade" id="modalBorrarChat" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="POST" action="mensajes.php">
+                    <?= campo_csrf() ?>
+                    <input type="hidden" name="accion" value="eliminar_conversacion">
+                    <div class="modal-header">
+                        <h5 class="modal-title fw-bold"><i class="bi bi-trash3 me-2 text-danger"></i>Eliminar conversación</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-0">¿Eliminar todo tu historial de chat con <?= e(SITE_NOMBRE) ?>? Esta acción no se puede deshacer.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-danger"><i class="bi bi-trash3 me-1"></i>Eliminar conversación</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

@@ -104,7 +104,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
 
 <?php if ($tab === 'historial'): ?>
     <?php
-    $historial = $pdo->query('SELECT h.*, pi.id AS proy_id, s.tipo_servicio, u.nombre AS usuario_nombre
+    $historial = $pdo->query('SELECT h.*, pi.id AS proy_id, pi.folio AS proy_folio, s.tipo_servicio, u.nombre AS usuario_nombre
                               FROM proyecto_historial h
                               LEFT JOIN proyectos_inicio pi ON h.proyecto_id = pi.id
                               LEFT JOIN solicitudes s ON pi.solicitud_id = s.id
@@ -126,7 +126,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                             <?php foreach ($historial as $h): ?>
                                 <tr>
                                     <td class="ps-4 small text-muted text-nowrap"><?= e(date('d/m/Y H:i', strtotime($h['creado_en']))) ?></td>
-                                    <td class="small">#<?= (int)$h['proy_id'] ?><?php if ($h['tipo_servicio']): ?> · <?= e($h['tipo_servicio']) ?><?php endif; ?></td>
+                                    <td class="small"><?= e($h['proy_folio'] ?: 'PRY-' . str_pad((string)(int)$h['proy_id'], 4, '0', STR_PAD_LEFT)) ?><?php if ($h['tipo_servicio']): ?> · <?= e($h['tipo_servicio']) ?><?php endif; ?></td>
                                     <td><span class="badge text-bg-light text-capitalize"><?= e(str_replace('_', ' ', $h['accion'])) ?></span></td>
                                     <td class="pe-4 small"><?= e($h['detalle'] ?: '—') ?></td>
                                 </tr>
@@ -165,6 +165,7 @@ $contHist = (int)contar_registros('proyecto_historial', "proyecto_id IN (SELECT 
                             <div>
                                 <h5 class="mb-1">
                                     <i class="bi <?= $pIco ?> me-2 text-primary"></i><?= e($p['tipo_servicio'] ?: 'Proyecto #' . (int)$p['id']) ?>
+                                    <span class="badge text-bg-light border font-monospace align-middle ms-1" title="Folio del proceso"><i class="bi bi-hash"></i><?= e(folio_proyecto_txt($p)) ?></span>
                                 </h5>
                                 <small class="text-muted">
                                     <i class="bi bi-calendar3 me-1"></i>Iniciado: <?= e(date('d/m/Y', strtotime($p['creado_en']))) ?>

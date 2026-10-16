@@ -72,7 +72,7 @@ $entregablesPorProyecto = [];
 $historial = [];
 
 if ($tab === 'historial') {
-    $historial = $pdo->query('SELECT h.*, u.nombre AS usuario_nombre, pi.id AS proy_id, s.tipo_servicio, ue.nombre AS cliente_nombre
+    $historial = $pdo->query('SELECT h.*, u.nombre AS usuario_nombre, pi.id AS proy_id, pi.folio AS proy_folio, s.tipo_servicio, ue.nombre AS cliente_nombre
                               FROM proyecto_historial h
                               LEFT JOIN usuarios u ON h.usuario_id = u.id
                               LEFT JOIN proyectos_inicio pi ON h.proyecto_id = pi.id
@@ -144,7 +144,7 @@ $contadores = [
                         <tr>
                             <td class="ps-3 small text-muted text-nowrap"><?= e(date('d/m/Y H:i', strtotime($h['creado_en']))) ?></td>
                             <td class="small">
-                                #<?= (int)$h['proyecto_id'] ?>
+                                <?= e($h['proy_folio'] ?: 'PRY-' . str_pad((string)(int)$h['proyecto_id'], 4, '0', STR_PAD_LEFT)) ?>
                                 <?php if ($h['tipo_servicio']): ?><br><small class="text-muted"><?= e($h['tipo_servicio']) ?></small><?php endif; ?>
                             </td>
                             <td class="small"><?= e($h['cliente_nombre'] ?: '—') ?></td>
@@ -190,6 +190,7 @@ $contadores = [
                             </td>
                             <td class="small">
                                 <b><?= e($p['tipo_servicio'] ?: 'Proyecto #' . (int)$p['id']) ?></b>
+                                <br><span class="badge text-bg-light border font-monospace" title="Folio del proceso"><i class="bi bi-hash"></i><?= e(folio_proyecto_txt($p)) ?></span>
                                 <?php if ($p['presupuesto']): ?><br><small class="text-muted">Cotización: <?= e($p['presupuesto']) ?></small><?php endif; ?>
                             </td>
                             <td class="small" style="min-width:150px;">

@@ -126,6 +126,15 @@ $entregables = $pdo->query('SELECT en.*, pi.usuario_id, u.nombre AS cliente_nomb
     </div>
 
     <div class="card border-0 shadow-sm">
+        <div class="card-body border-bottom">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                <div class="input-group" style="max-width:460px;">
+                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <input type="search" id="buscaFactura" class="form-control" placeholder="Buscar por folio, cliente, RFC o concepto…" autocomplete="off">
+                </div>
+                <small class="text-muted" id="buscaFacturaContador"></small>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-admin mb-0 align-middle">
                 <thead class="table-light">
@@ -142,7 +151,7 @@ $entregables = $pdo->query('SELECT en.*, pi.usuario_id, u.nombre AS cliente_nomb
                         <th class="text-end pe-3">Acciones</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="tbodyFacturas">
                     <?php if (!$facturas): ?>
                         <tr><td colspan="10" class="text-center text-muted py-4"><i class="bi bi-receipt-cutoff me-1"></i>Todavía no se ha emitido ninguna factura.</td></tr>
                     <?php else: foreach ($facturas as $f): ?>
@@ -371,7 +380,7 @@ function plantillaFacturaHTML(f) {
         + '<div><span>Concepto</span><b>' + escHTML(f.concepto || 'Desarrollo de proyecto') + '</b></div>'
         + '</div>'
         + '<div class="factura-bloque"><div class="factura-titulo-bloque">EMISOR</div>'
-        + '<div><span>Empresa</span><b>' + escHTML(f.emisor || M.nombre || SITE_NOMBRE) + '</b></div>'
+        + '<div><span>Empresa</span><b>' + escHTML(f.emisor || M.nombre || 'FV Digital') + '</b></div>'
         + (M.razon_social ? '<div><span>Razón social</span><b>' + escHTML(M.razon_social) + '</b></div>' : '')
         + (M.rfc ? '<div><span>RFC</span><b>' + escHTML(M.rfc) + '</b></div>' : '')
         + (M.direccion ? '<div><span>Dirección</span><b>' + escHTML(M.direccion) + '</b></div>' : '')
@@ -457,6 +466,35 @@ function descargarFacturaAdmin(id) {
 
 document.addEventListener('DOMContentLoaded', function () {
     modalFacturaObj = new bootstrap.Modal(document.getElementById('modalFactura'));
+});
+
+/* ---------- Búsqueda en vivo de facturas ---------- */
+document.addEventListener('DOMContentLoaded', function () {
+    var input = document.getElementById('buscaFactura');
+    var tbody = document.getElementById('tbodyFacturas');
+    if (!input || !tbody) return;
+    var contador = document.getElementById('buscaFacturaContador');
+    var filas = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+    var sinResultados = document.createElement('tr');
+    sinResultados.id = 'buscaFacturaVacio';
+    sinResultados.innerHTML = '<td colspan="10" class="text-center text-muted py-4"><i class="bi bi-search me-1"></i>Sin facturas que coincidan con la búsqueda.</td>';
+    sinResultados.style.display = 'none';
+    tbody.appendChild(sinResultados);
+
+    function filtrar() {
+        var q = input.value.trim().toLowerCase();
+        var visibles = 0;
+        filas.forEach(function (tr) {
+            if (q === '') { tr.style.display = ''; visibles++; return; }
+            var coincide = tr.textContent.toLowerCase().indexOf(q) !== -1;
+            tr.style.display = coincide ? '' : 'none';
+            if (coincide) visibles++;
+        });
+        sinResultados.style.display = (visibles === 0 && q !== '') ? '' : 'none';
+        if (contador) contador.textContent = q === '' ? '' : (visibles + ' de ' + filas.length + ' factura(s)');
+    }
+    input.addEventListener('input', filtrar);
+    input.addEventListener('search', filtrar);
 });
 </script>
 
