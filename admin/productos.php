@@ -6,7 +6,15 @@ $seccionAdmin = 'productos.php';
 require_once __DIR__ . '/includes/cabecera.php';
 
 /* ---------- Acciones ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verificar_csrf()) {
+        /* Antes este caso se descartaba en silencio: el usuario llenaba el
+           formulario, la sesión había expirado y "no pasaba nada" sin aviso. */
+        flash('Tu sesión expiró. Vuelve a cargar la página, entra de nuevo y repite el guardado.', 'warning');
+        header('Location: productos.php');
+        exit;
+    }
+
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
@@ -17,7 +25,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             header('Location: productos.php');
             exit;
         }
-        $slugP = slug_unico($tituloP, 'productos', $id > 0 ? $id : null);
         $descripcionP = trim($_POST['descripcion'] ?? '');
         $precioP = (float)($_POST['precio'] ?? 0);
         $categoriaP = trim($_POST['categoria'] ?? '');
@@ -26,26 +33,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $activoP = isset($_POST['activo']) ? 1 : 0;
         $imagenP = null;
 
-        if ($id > 0) {
-            $stmtOld = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
-            $stmtOld->execute([$id]);
-            $old = $stmtOld->fetch();
-            if ($old) $imagenP = $old['imagen'];
-        }
-
-        if (!empty($_FILES['imagen']['name'])) {
-            $res = subir_archivo('imagen', 'productos', ['jpg', 'jpeg', 'png', 'webp'], 4);
-            if ($res['ok']) {
-                if ($imagenP) eliminar_archivo($imagenP);
-                $imagenP = $res['archivo'];
-            } else {
-                flash('Error con la imagen: ' . $res['error'], 'danger');
-                header('Location: productos.php');
-                exit;
-            }
-        }
-
         try {
+            $slugP = slug_unico($tituloP, 'productos', $id > 0 ? $id : null);
+
+            if ($id > 0) {
+                $stmtOld = $pdo->prepare('SELECT imagen FROM productos WHERE id = ?');
+                $stmtOld->execute([$id]);
+                $old = $stmtOld->fetch();
+                if ($old) $imagenP = $old['imagen'];
+            }
+
+            if (!empty($_FILES['imagen']['name'])) {
+                $res = subir_archivo('imagen', 'productos', ['jpg', 'jpeg', 'png', 'webp'], 4);
+                if ($res['ok']) {
+                    if ($imagenP) eliminar_archivo($imagenP);
+                    $imagenP = $res['archivo'];
+                } else {
+                    flash('Error con la imagen: ' . $res['error'], 'danger');
+                    header('Location: productos.php');
+                    exit;
+                }
+            }
+
             if ($id > 0) {
                 $pdo->prepare('UPDATE productos SET titulo=?, slug=?, descripcion=?, precio=?, imagen=?, categoria=?, referencia=?, stock=?, activo=? WHERE id=?')
                     ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP, $id]);
@@ -55,8 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                     ->execute([$tituloP, $slugP, $descripcionP, $precioP, $imagenP, $categoriaP, $referenciaP !== '' ? $referenciaP : null, $stockP, $activoP]);
                 flash('Producto creado correctamente.');
             }
-        } catch (PDOException $e) {
-            flash('No se pudo guardar el producto. Verifica los datos e intenta de nuevo.', 'danger');
+        } catch (Throwable $e) {
+            registrar_error('productos.guardar', $e, [
+                'id' => $id, 'titulo' => $tituloP, 'precio' => $precioP,
+                'stock' => $stockP, 'activo' => $activoP, 'imagen' => $imagenP,
+            ]);
+            flash('No se pudo guardar el producto. ' . MSG_ERROR_GENERICO, 'danger');
         }
         header('Location: productos.php');
         exit;
@@ -71,8 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             $pdo->prepare('DELETE FROM carrito WHERE producto_id = ?')->execute([(int)$_POST['id']]);
             $pdo->prepare('DELETE FROM productos WHERE id = ?')->execute([(int)$_POST['id']]);
             flash('Producto eliminado.', 'warning');
-        } catch (PDOException $e) {
-            flash('No se pudo eliminar el producto.', 'danger');
+        } catch (Throwable $e) {
+            registrar_error('productos.eliminar', $e, ['id' => (int)$_POST['id']]);
+            flash('No se pudo eliminar el producto. ' . MSG_ERROR_GENERICO, 'danger');
         }
         header('Location: productos.php');
         exit;

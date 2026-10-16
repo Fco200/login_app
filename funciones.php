@@ -395,6 +395,29 @@ function eliminar_archivo(?string $ruta): void {
 
 /* ---------- Mensajes flash ---------- */
 
+/* Mensaje corto que se muestra al usuario cuando una acción falla por un
+   error interno. El detalle real siempre queda en logs/errores.log */
+define('MSG_ERROR_GENERICO', 'Ocurrió un error interno. El detalle quedó registrado; inténtalo de nuevo.');
+
+function registrar_error(string $contexto, Throwable $e, array $datos = []): void {
+    $dir = __DIR__ . '/logs';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    $linea = sprintf(
+        "[%s] %s | %s: %s en %s:%d\n  datos: %s\n",
+        date('Y-m-d H:i:s'),
+        $contexto,
+        get_class($e),
+        $e->getMessage(),
+        $e->getFile(),
+        $e->getLine(),
+        json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)
+    );
+    @file_put_contents($dir . '/errores.log', $linea, FILE_APPEND | LOCK_EX);
+    error_log($linea);
+}
+
 function flash(string $mensaje, string $tipo = 'success'): void {
     $_SESSION['flash'] = ['mensaje' => $mensaje, 'tipo' => $tipo];
 }

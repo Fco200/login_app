@@ -6,7 +6,13 @@ $seccionAdmin = 'servicios.php';
 require_once __DIR__ . '/includes/cabecera.php';
 
 /* ---------- Acciones ---------- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verificar_csrf()) {
+        flash('Tu sesión expiró. Vuelve a cargar la página, entra de nuevo y repite el guardado.', 'warning');
+        header('Location: servicios.php');
+        exit;
+    }
+
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar') {
@@ -21,9 +27,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         $destaque = isset($_POST['destaque']) ? 1 : 0;
         $activo = isset($_POST['activo']) ? 1 : 0;
 
-        $slugBase = slug_unico($tituloS, 'servicios', $id > 0 ? $id : null);
-
         try {
+            $slugBase = slug_unico($tituloS, 'servicios', $id > 0 ? $id : null);
+
             if ($id > 0) {
                 $sql = "UPDATE servicios SET titulo=?, descripcion_corta=?, descripcion=?, icono=?, categoria=?, precio_desde=?, precio_fijo=?, destaque=?, activo=? WHERE id=?";
                 $pdo->prepare($sql)->execute([$tituloS, $corta, $desc, $icono, $categoria, $precio, $precioFijo, $destaque, $activo, $id]);
@@ -33,8 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                 $pdo->prepare($sql)->execute([$tituloS, $slugBase, $corta, $desc, $icono, $categoria, $precio, $precioFijo, $destaque, $activo]);
                 flash('Servicio creado correctamente.');
             }
-        } catch (PDOException $e) {
-            flash('No se pudo guardar el servicio. Verifica los datos e intenta de nuevo.', 'danger');
+        } catch (Throwable $e) {
+            registrar_error('servicios.guardar', $e, ['id' => $id, 'titulo' => $tituloS, 'precio' => $precio]);
+            flash('No se pudo guardar el servicio. ' . MSG_ERROR_GENERICO, 'danger');
         }
         header('Location: servicios.php');
         exit;
@@ -44,8 +51,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
         try {
             $pdo->prepare('DELETE FROM servicios WHERE id = ?')->execute([(int)$_POST['id']]);
             flash('Servicio eliminado.', 'warning');
-        } catch (PDOException $e) {
-            flash('No se pudo eliminar el servicio.', 'danger');
+        } catch (Throwable $e) {
+            registrar_error('servicios.eliminar', $e, ['id' => (int)$_POST['id']]);
+            flash('No se pudo eliminar el servicio. ' . MSG_ERROR_GENERICO, 'danger');
         }
         header('Location: servicios.php');
         exit;
