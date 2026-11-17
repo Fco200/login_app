@@ -184,13 +184,134 @@ function requiere_sesion(): void {
 
 /* ---------- Carrito ---------- */
 
+/* Formato de dinero usado por el carrito y el checkout (siempre con 2 decimales
+   para que el total mostrado coincida con el monto guardado en la BD). */
+function carrito_monto(float $cantidad, bool $conMoneda = true): string {
+    return '$' . number_format($cantidad, 2) . ($conMoneda ? ' MXN' : '');
+}
+
+/*
+ * Recalcula el carrito leyendo SIEMPRE precio y stock vigentes desde la BD.
+ * Nunca confía en el precio guardado en `carrito.precio_unitario`: ese valor
+ * se usa sólo como referencia y se sobreescribe cuando $sincronizar es true.
+ *
+ * Devuelve: items (detalle limpio), item_count, unidades, subtotal, count,
+ * avisos (textos cuando se ajustó stock) y descartados (ítems sin existencias).
+ */
+function carrito_calcular(int $usuarioId, bool $sincronizar = false): array {
+    global $pdo;
+
+    $stmt = $pdo->prepare('SELECT c.*,
+                                  sv.titulo AS servicio_titulo, sv.icono AS servicio_icono,
+                                  sv.precio_desde AS servicio_precio, sv.activo AS servicio_activo,
+                                  pr.titulo AS producto_titulo, pr.imagen AS producto_imagen,
+                                  pr.precio AS producto_precio, pr.stock AS producto_stock,
+                                  pr.activo AS producto_activo
+                           FROM carrito c
+                           LEFT JOIN servicios sv ON c.servicio_id = sv.id
+                           LEFT JOIN productos pr ON c.producto_id = pr.id
+                           WHERE c.usuario_id = ?
+                           ORDER BY c.creado_en DESC');
+    $stmt->execute([$usuarioId]);
+    $filas = $stmt->fetchAll();
+
+    $items = [];
+    $avisos = [];
+    $descartados = 0;
+    $subtotal = 0.0;
+    $unidades = 0;
+
+    foreach ($filas as $f) {
+        $idItem       = (int)$f['id'];
+        $esProducto   = (int)($f['producto_id'] ?? 0) > 0;
+        $cantidad     = max(1, (int)$f['cantidad']);
+        $precio       = (float)$f['precio_unitario'];
+        $stock        = null;
+        $descartar    = false;
+        $titulo       = $esProducto
+            ? (string)($f['producto_titulo'] ?? 'Producto')
+            : (string)($f['servicio_titulo'] ?? 'Servicio');
+
+        if ($esProducto) {
+            $precio = (float)($f['producto_precio'] ?? 0);
+            $stock  = max(0, (int)($f['producto_stock'] ?? 0));
+
+            if ((int)($f['producto_activo'] ?? 0) !== 1 || $precio <= 0 || $stock <= 0) {
+                $descartar = true;
+                $avisos[]  = $titulo . ' ya no tiene existencias y se quitó del carrito.';
+            } elseif ($cantidad > $stock) {
+                $cantidad = $stock; // Tope estricto: no se puede comprar más de lo que hay.
+                $avisos[] = $titulo . ' se ajustó a ' . $stock . ' unidad(es) disponibles.';
+            }
+        } else {
+            $precio = (float)($f['servicio_precio'] ?? 0);
+            if ((int)($f['servicio_activo'] ?? 0) !== 1 || $precio <= 0) {
+                $descartar = true;
+                $avisos[]  = $titulo . ' ya no está disponible y se quitó del carrito.';
+            }
+        }
+
+        if ($descartar) {
+            $descartados++;
+            if ($sincronizar) {
+                $pdo->prepare('DELETE FROM carrito WHERE id = ? AND usuario_id = ?')
+                    ->execute([$idItem, $usuarioId]);
+            }
+            continue;
+        }
+
+        /* Guardar precio vigente y cantidad corregida para que el carrito
+           nunca quede desactualizado respecto al catálogo. */
+        if ($sincronizar && ((float)$f['precio_unitario'] !== $precio || (int)$f['cantidad'] !== $cantidad)) {
+            $pdo->prepare('UPDATE carrito SET precio_unitario = ?, cantidad = ? WHERE id = ? AND usuario_id = ?')
+                ->execute([$precio, $cantidad, $idItem, $usuarioId]);
+        }
+
+        $subtotalItem = round($precio * $cantidad, 2);
+        $items[] = [
+            'id'             => $idItem,
+            'producto_id'    => (int)($f['producto_id'] ?? 0),
+            'servicio_id'    => (int)($f['servicio_id'] ?? 0),
+            'titulo'         => $titulo,
+            'es_producto'    => $esProducto,
+            'cantidad'       => $cantidad,
+            'precio_unitario'=> $precio,
+            'stock'          => $stock,
+            'subtotal'       => $subtotalItem,
+            'imagen'         => (string)($f['producto_imagen'] ?? ''),
+            'icono'          => (string)($f['servicio_icono'] ?? 'bi-box-seam'),
+        ];
+        $subtotal += $subtotalItem;
+        $unidades += $cantidad;
+    }
+
+    $subtotal = round($subtotal, 2);
+
+    return [
+        'items'       => $items,
+        'item_count'  => count($items),
+        'unidades'    => $unidades,
+        'subtotal'    => $subtotal,
+        'count'       => $unidades,
+        'avisos'      => $avisos,
+        'descartados' => $descartados,
+    ];
+}
+
 /*
  * Renderiza el formulario "Agregar al carrito" para el sitio público.
  * $tipo: 'servicio' | 'producto' · $titulo: sólo informativo
+ * $stock: existencias del producto (null = no aplica). Si es 0 se muestra
+ * "Sin existencias"; si es > 0 se muestra aviso de stock y selector de cantidad.
  * Si el visitante no ha iniciado sesión lo lleva al login con retorno.
  */
-function form_agregar_carrito(int $id, string $tipo, string $titulo = ''): string {
+function form_agregar_carrito(int $id, string $tipo, string $titulo = '', ?int $stock = null): string {
     $csrf = campo_csrf();
+
+    if ($tipo === 'producto' && $stock !== null && $stock <= 0) {
+        return '<button class="btn btn-outline-fv w-100" disabled><i class="bi bi-x-circle me-1"></i>Sin existencias</button>';
+    }
+
     if (!esta_logueado()) {
         $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
         $base = url_sitio('');
@@ -201,12 +322,25 @@ function form_agregar_carrito(int $id, string $tipo, string $titulo = ''): strin
             . '<input type="hidden" name="retorno" value="' . e($uri !== '' ? $uri : 'index.php') . '">'
             . '<button type="submit" class="btn btn-outline-fv w-100 btn-agregar-carrito"><i class="bi bi-cart-plus me-1"></i>Inicia sesión para comprar</button></form>';
     }
+
     $campo = $tipo === 'producto' ? 'producto_id' : 'servicio_id';
-    return '<form method="POST" action="' . e(url_sitio('portal/carrito.php')) . '" class="js-ajax form-agregar-carrito" data-titulo="' . e($titulo) . '">'
+    $html = '<form method="POST" action="' . e(url_sitio('portal/carrito.php')) . '" class="js-ajax form-agregar-carrito" data-titulo="' . e($titulo) . '">'
         . $csrf
         . '<input type="hidden" name="accion" value="agregar">'
-        . '<input type="hidden" name="' . $campo . '" value="' . $id . '">'
-        . '<input type="hidden" name="cantidad" value="1">'
+        . '<input type="hidden" name="' . $campo . '" value="' . $id . '">';
+
+    if ($tipo === 'producto' && $stock !== null) {
+        $html .= '<div class="d-flex justify-content-end mb-2">'
+            . '<div class="input-group input-group-sm" style="width:118px;">'
+            . '<button type="button" class="btn btn-outline-secondary" data-cant-menos aria-label="Quitar una unidad">−</button>'
+            . '<input type="number" name="cantidad" class="form-control text-center" value="1" min="1" max="' . $stock . '" aria-label="Cantidad">'
+            . '<button type="button" class="btn btn-outline-secondary" data-cant-mas aria-label="Agregar una unidad">+</button>'
+            . '</div></div>';
+    } else {
+        $html .= '<input type="hidden" name="cantidad" value="1">';
+    }
+
+    return $html
         . '<button type="submit" class="btn btn-outline-fv w-100 btn-agregar-carrito" data-cargando="<span class=&quot;spinner-border spinner-border-sm&quot;></span>"><i class="bi bi-cart-plus me-1"></i>Agregar al carrito</button></form>';
 }
 
