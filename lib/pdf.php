@@ -26,6 +26,14 @@ final class FV_PDF
     public float $alto = 297;
     public float $margenY = 286; // máximo Y de contenido
 
+    /** El PDF mide en puntos (72 por pulgada); la API de esta clase usa milímetros. */
+    private const PT_POR_MM = 72.0 / 25.4;
+
+    private static function pt(float $mm): float
+    {
+        return $mm * self::PT_POR_MM;
+    }
+
     /* ---------- Utilidades de texto ---------- */
 
     private static function limpiar(string $t): string
@@ -57,7 +65,9 @@ final class FV_PDF
         foreach (preg_split('//u', $t, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
             $ancho += self::anchoCaracter(strtolower($ch), $tipo);
         }
-        return $ancho * $tam;
+        // $tam está en puntos y $anchoMax en milímetros: devolver el ancho
+        // en milímetros permite comparar con los anchos de columna de la API.
+        return $ancho * $tam / self::PT_POR_MM;
     }
 
     public function ajustarTexto(string $t, float $anchoMax, ?string $tipo = null, ?float $tam = null): array
@@ -101,23 +111,27 @@ final class FV_PDF
 
     public function lineaT(float $x1, float $y1, float $x2, float $y2, array $color = [120, 135, 160], float $grosor = 0.3): void
     {
-        $yPdf1 = $this->alto - $y1;
-        $yPdf2 = $this->alto - $y2;
-        $this->paginas[$this->pag] .= sprintf('%s %s rg %.3f w %.2f %.2f m %.2f %.2f l S',
-            $color[0] / 255, $color[1] / 255, $color[2] / 255, $grosor, $x1, $yPdf1, $x2, $yPdf2) . " \n";
+        $yPdf1 = self::pt($this->alto - $y1);
+        $yPdf2 = self::pt($this->alto - $y2);
+        $this->paginas[$this->pag] .= sprintf('%s %s %s rg %.3f w %.2f %.2f m %.2f %.2f l S',
+            $color[0] / 255, $color[1] / 255, $color[2] / 255, $grosor,
+            self::pt($x1), $yPdf1, self::pt($x2), $yPdf2) . " \n";
     }
 
     public function rectT(float $x, float $y, float $w, float $h, array $opts = []): void
     {
-        $yPdf = $this->alto - $y - $h;
+        $xPt = self::pt($x);
+        $yPdf = self::pt($this->alto - $y - $h);
+        $wPt = self::pt($w);
+        $hPt = self::pt($h);
         $fill = $opts['fill'] ?? null;
         $stroke = $opts['stroke'] ?? null;
         $comando = $fill ? sprintf('%s %s %s rg %.2f %.2f %.2f %.2f re f',
-            $fill[0] / 255, $fill[1] / 255, $fill[2] / 255, $x, $yPdf, $w, $h) : '';
+            $fill[0] / 255, $fill[1] / 255, $fill[2] / 255, $xPt, $yPdf, $wPt, $hPt) : '';
         if ($stroke) {
             $comando .= sprintf(' %s %s %s RG %.3f w %.2f %.2f %.2f %.2f re S',
                 $stroke[0] / 255, $stroke[1] / 255, $stroke[2] / 255,
-                $opts['ancho'] ?? 0.5, $x, $yPdf, $w, $h);
+                $opts['ancho'] ?? 0.5, $xPt, $yPdf, $wPt, $hPt);
         }
         if ($comando !== '') {
             $this->paginas[$this->pag] .= trim($comando) . " \n";
@@ -138,8 +152,8 @@ final class FV_PDF
         $altoLinea = $tam * 0.352778 * 1.25;
         foreach ($lineas as $i => $linea) {
             $yLine = $y + $i * $altoLinea;
-            $yPdf = $this->alto - $yLine;
-            $w = $this->anchoTexto($linea, $tipo, $tam);
+            $yPdf = self::pt($this->alto - $yLine);
+            $w = $this->anchoTexto($linea, $tipo, $tam); // ancho en mm
             $x0 = $x;
             if ($align === 'right') {
                 $x0 = $x - $w;
@@ -148,7 +162,8 @@ final class FV_PDF
             }
             $font = $tipo === 'bold' ? 'F2' : 'F1';
             $this->paginas[$this->pag] .= sprintf('BT /%s %.3f Tf %s %s %s rg 1 0 0 1 %.2f %.2f Tm (%s) Tj ET',
-                $font, $tam, $color[0] / 255, $color[1] / 255, $color[2] / 255, $x0, $yPdf, self::limpiar($linea)) . " \n";
+                $font, $tam, $color[0] / 255, $color[1] / 255, $color[2] / 255,
+                self::pt($x0), $yPdf, self::limpiar($linea)) . " \n";
         }
         return $y + count($lineas) * $altoLinea;
     }
@@ -165,11 +180,11 @@ final class FV_PDF
         $this->imgs[$clave] = $datos;
         $this->imgUsadas[$this->pag][] = $clave;
 
-        $w /= 25.4; // mm -> pts
-        $h /= 25.4;
-        $xPts = $x / 25.4;
-        $yPts = ($this->alto - $y - ($h * 25.4)) / 25.4;
-        $this->paginas[$this->pag] .= sprintf("q %.5f 0 0 %.5f %.5f %.5f cm /%s Do Q\n", $w, $h, $xPts, $yPts, $clave);
+        $wPt = self::pt($w);
+        $hPt = self::pt($h);
+        $xPts = self::pt($x);
+        $yPts = self::pt($this->alto - $y - $h);
+        $this->paginas[$this->pag] .= sprintf("q %.5f 0 0 %.5f %.5f %.5f cm /%s Do Q\n", $wPt, $hPt, $xPts, $yPts, $clave);
         return true;
     }
 
@@ -449,8 +464,9 @@ final class FV_PDF
     {
         header('Content-Type: application/pdf');
         header('Content-Disposition: ' . ($adjunto ? 'attachment' : 'inline') . '; filename="' . str_replace(['"', "\r", "\n"], '', $nombreArchivo) . '"');
-        header('Content-Length: ' . strlen($this->bytes()));
-        echo $this->bytes();
+        $pdf = $this->bytes();
+        header('Content-Length: ' . strlen($pdf));
+        echo $pdf;
         exit;
     }
 }
