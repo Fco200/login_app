@@ -27,4 +27,4 @@ define('SITE_FOOTER', 'TV Digital — Soluciones Digitales y Desarrollo.');
 define('UPLOADS_DIR', __DIR__ . '/assets/uploads');
 define('MAX_ARCHIVO_MB', 8);
 define('RUTA_ADMIN_LOGIN', 'login.php');
-define('SESION_INACTIVIDAD_MIN', 10);
+define('SESION_INACTIVIDAD_MIN', 60);

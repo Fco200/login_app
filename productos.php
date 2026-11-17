@@ -43,12 +43,19 @@ require_once 'includes/cabecera.php';
                                     <p class="small text-secondary mb-3"><?= e($p['descripcion']) ?></p>
                                 <?php endif; ?>
                                 <p class="precio-desde mt-auto mb-3"><b><?= e(formatear_precio((float)$p['precio'])) ?></b></p>
-                                <div class="d-grid gap-2">
-                                    <?php if ((int)$p['stock'] > 0): ?>
-                                        <?= form_agregar_carrito((int)$p['id'], 'producto', $p['titulo']) ?>
+                                <?php $stockProducto = (int)$p['stock']; ?>
+                                <small class="d-block mb-2 <?= $stockProducto <= 0 ? 'text-danger' : ($stockProducto <= 3 ? 'text-warning' : 'text-success') ?>">
+                                    <i class="bi bi-<?= $stockProducto <= 0 ? 'x-circle' : ($stockProducto <= 3 ? 'exclamation-triangle' : 'check-circle') ?> me-1"></i>
+                                    <?php if ($stockProducto <= 0): ?>
+                                        Agotado
+                                    <?php elseif ($stockProducto <= 3): ?>
+                                        Quedan solo <?= $stockProducto ?> disponibles
                                     <?php else: ?>
-                                        <button class="btn btn-outline-fv w-100" disabled><i class="bi bi-x-circle me-1"></i>Sin existencias</button>
+                                        Quedan <?= $stockProducto ?> disponibles
                                     <?php endif; ?>
+                                </small>
+                                <div class="d-grid gap-2">
+                                    <?= form_agregar_carrito((int)$p['id'], 'producto', $p['titulo'], $stockProducto) ?>
                                 </div>
                             </div>
                         </div>

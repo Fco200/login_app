@@ -142,6 +142,57 @@ window.FV = window.FV || {};
         if (d.cart_subtotal != null || d.cart_items != null) FV.actualizarResumen(d);
     });
 
+    /* ---------- Selector de cantidad en "Agregar al carrito" ----------
+       Los botones +/- respetan el atributo max (stock disponible). */
+    function stepperEstado(form) {
+        var input = form.querySelector('[name="cantidad"]');
+        if (!input) return;
+        var min = parseInt(input.min, 10) || 1;
+        var max = parseInt(input.max, 10) || 1;
+        var val = parseInt(input.value, 10) || min;
+        var menos = form.querySelector('[data-cant-menos]');
+        var mas = form.querySelector('[data-cant-mas]');
+        if (menos) menos.disabled = val <= min;
+        if (mas) mas.disabled = val >= max;
+    }
+
+    document.addEventListener('click', function (evt) {
+        var btn = evt.target && evt.target.closest
+            ? evt.target.closest('.form-agregar-carrito [data-cant-menos], .form-agregar-carrito [data-cant-mas]')
+            : null;
+        if (!btn) return;
+        evt.preventDefault();
+        var form = btn.closest('form');
+        var input = form && form.querySelector('[name="cantidad"]');
+        if (!input) return;
+        var min = parseInt(input.min, 10) || 1;
+        var max = parseInt(input.max, 10) || 1;
+        var val = parseInt(input.value, 10) || min;
+        var delta = btn.hasAttribute('data-cant-mas') ? 1 : -1;
+        input.value = Math.min(max, Math.max(min, val + delta));
+        stepperEstado(form);
+    });
+
+    document.addEventListener('change', function (evt) {
+        var input = evt.target;
+        if (!input || !input.name || input.name !== 'cantidad') return;
+        var form = input.closest ? input.closest('form.form-agregar-carrito') : null;
+        if (form) stepperEstado(form);
+    });
+
+    /* Después de agregar al carrito el formulario se resetea: el evento reset
+       se dispara ANTES de aplicar los valores, por eso se revisa en el next tick. */
+    document.addEventListener('reset', function (evt) {
+        var form = evt.target;
+        if (!form || !form.classList || !form.classList.contains('form-agregar-carrito')) return;
+        setTimeout(function () { stepperEstado(form); }, 0);
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var forms = document.querySelectorAll('form.form-agregar-carrito');
+        for (var i = 0; i < forms.length; i++) stepperEstado(forms[i]);
+    });
+
     /* ---------- Overlay de carga ---------- */
     let cargandoEl = null;
 

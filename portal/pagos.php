@@ -122,10 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
 
     if ($accion === 'pagar_producto') {
         $metodoId = (int)($_POST['metodo_pago_id'] ?? 0);
-        $monto = (float)($_POST['monto'] ?? 0);
-        if ($monto <= 0) {
-            responder(['ok' => false, 'mensaje' => 'Captura un monto válido.', 'tipo' => 'warning']);
-        }
+
         /* Idempotencia del carrito: mismo token no duplica el pedido. */
         $claveProducto = trim((string)($_POST['clave_unica'] ?? ''));
         if ($claveProducto !== '') {
@@ -135,35 +132,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
                 responder(['ok' => true, 'mensaje' => 'Tu pedido ya fue registrado; no se duplicó.', 'tipo' => 'info', 'destino' => url_sitio('portal/pagos.php')]);
             }
         }
+
+        /* El monto NUNCA se toma del formulario: se recalcula desde la BD
+           usando precio vigente y cantidades topeadas por stock. */
+        $carrito = carrito_calcular((int)$usuario['id'], true);
+        if ($carrito['item_count'] === 0) {
+            responder(['ok' => false, 'mensaje' => 'Tu carrito está vacío. Agrega productos antes de pagar.', 'tipo' => 'warning']);
+        }
+        if ($carrito['descartados'] > 0) {
+            responder([
+                'ok' => false,
+                'mensaje' => 'Algunos productos ya no tienen existencias y se quitaron del carrito. Revisa tu carrito antes de pagar.',
+                'tipo' => 'warning',
+                'destino' => url_sitio('portal/carrito.php'),
+            ]);
+        }
+        $monto = $carrito['subtotal'];
+        if ($monto <= 0) {
+            responder(['ok' => false, 'mensaje' => 'No se pudo calcular el total de tu pedido. Intenta de nuevo.', 'tipo' => 'danger']);
+        }
+
+        /* Método de pago válido y activo. */
+        $stMetodo = $pdo->prepare('SELECT id, nombre FROM metodos_pago WHERE id = ? AND activo = 1');
+        $stMetodo->execute([$metodoId]);
+        $metodo = $stMetodo->fetch();
+        if (!$metodo) {
+            responder(['ok' => false, 'mensaje' => 'Selecciona un método de pago válido.', 'tipo' => 'warning']);
+        }
+
         if (empty($_FILES['comprobante']['name']) || $_FILES['comprobante']['error'] !== UPLOAD_ERR_OK) {
             responder(['ok' => false, 'mensaje' => 'Es obligatorio subir el comprobante de pago. Sin comprobante no podemos procesar tu pedido.', 'tipo' => 'warning']);
         }
-        $comprobanteRuta = null;
-        if (!empty($_FILES['comprobante']['name'])) {
-            $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
-            if ($res['ok']) {
-                $comprobanteRuta = $res['archivo'];
-            } else {
-                responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
-            }
+        $res = subir_archivo('comprobante', 'comprobantes', ['jpg','jpeg','png','pdf','webp'], 8);
+        if (!$res['ok']) {
+            responder(['ok' => false, 'mensaje' => 'Error con el comprobante: ' . $res['error'], 'tipo' => 'danger']);
         }
+        $comprobanteRuta = $res['archivo'];
+
+        /* Snapshot del pedido en notas (no hay tabla de detalle de pagos). */
+        $detalle = [];
+        foreach ($carrito['items'] as $it) {
+            $detalle[] = $it['titulo'] . ' x' . $it['cantidad'] . ' @ ' . carrito_monto($it['precio_unitario'], false)
+                . ' = ' . carrito_monto($it['subtotal'], false);
+        }
+        $notas = 'Compra desde el carrito (monto recalculado por el servidor). ' . implode(' | ', $detalle);
+        if ($carrito['avisos']) {
+            $notas .= ' Ajustes: ' . implode(' ', $carrito['avisos']);
+        }
+
         try {
             $pdo->prepare('INSERT INTO pagos (usuario_id, solicitud_id, metodo_pago_id, monto, tipo_pago, comprobante, estado, notas, clave_unica) VALUES (?,?,?,?,?,?,?,?,?)')
                 ->execute([
                     (int)$usuario['id'],
                     null,
-                    $metodoId > 0 ? $metodoId : null,
+                    $metodoId,
                     $monto,
                     'producto',
                     $comprobanteRuta,
                     'pendiente',
-                    'Compra desde el carrito',
+                    $notas,
                     $claveProducto !== '' ? $claveProducto : null,
                 ]);
             /* Vaciar el carrito del usuario después del pago */
             $pdo->prepare('DELETE FROM carrito WHERE usuario_id = ?')->execute([(int)$usuario['id']]);
-            notificar((int)$usuario['id'], 'pago', 'Pedido registrado', 'Tu pago de $' . number_format($monto, 0) . ' MXN por productos fue registrado. Espera la confirmación del equipo.', url_sitio('portal/pagos.php'));
-            notificar_admins('pago', 'Compra pendiente de confirmación', $usuario['nombre'] . ' realizó una compra por $' . number_format($monto, 0) . ' MXN desde el carrito.', url_sitio('admin/pagos.php'));
+            notificar((int)$usuario['id'], 'pago', 'Pedido registrado', 'Tu pago de ' . carrito_monto($monto) . ' por productos fue registrado. Espera la confirmación del equipo.', url_sitio('portal/pagos.php'));
+            notificar_admins('pago', 'Compra pendiente de confirmación', $usuario['nombre'] . ' realizó una compra por ' . carrito_monto($monto) . ' desde el carrito.', url_sitio('admin/pagos.php'));
             responder(['ok' => true, 'mensaje' => 'Pago de productos registrado. Tu carrito se vació y tu pedido queda pendiente de confirmación.', 'tipo' => 'success', 'destino' => url_sitio('portal/pagos.php')]);
         } catch (PDOException $e) {
             /* Carrera de doble envío: el token ya se insertó.
@@ -171,7 +204,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verificar_csrf()) {
             if ((string)$e->getCode() === '23000') {
                 responder(['ok' => true, 'mensaje' => 'Tu pedido ya fue registrado; no se duplicó.', 'tipo' => 'info', 'destino' => url_sitio('portal/pagos.php')]);
             }
-            responder(['ok' => false, 'mensaje' => 'No se pudo registrar el pedido: ' . $e->getMessage(), 'tipo' => 'danger']);
+            error_log('Error al registrar pago de carrito: ' . $e->getMessage());
+            responder(['ok' => false, 'mensaje' => 'No se pudo registrar el pedido. Intenta de nuevo o contacta al administrador.', 'tipo' => 'danger']);
         }
     }
 }

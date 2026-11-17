@@ -14,6 +14,7 @@ $usuario = sesion_actual() ?? ['id' => (int)$_SESSION['usuario_id'], 'email' => 
 
 $usuarioId = (int)$usuario['id'];
 
+<<<<<<< HEAD
 
 
 /* ---------- Acciones POST (agregar / actualizar / eliminar / pagar) ---------- */
@@ -58,6 +59,24 @@ function resumen_carrito(int $usuarioId): array {
 
     ];
 
+=======
+/* ---------- Acciones POST (agregar / actualizar / eliminar / vaciar / resumen) ----------
+   Todas las respuestas se construyen con datos_carrito(): así el resumen, los
+   totales y el badge siempre se recalculan desde la BD y nunca desde el cliente. */
+function datos_carrito(int $usuarioId, array $extra = []): array {
+    $c = carrito_calcular($usuarioId, true);
+    return array_merge([
+        'cart_count'      => $c['count'],
+        'cart_items'      => $c['item_count'],
+        'cart_units'      => $c['unidades'],
+        'cart_subtotal'   => carrito_monto($c['subtotal']),
+        'cart_total'      => carrito_monto($c['subtotal']),
+        'cart_subtotal_num' => $c['subtotal'],
+        'cart_total_num'    => $c['subtotal'],
+        'vacio'           => $c['item_count'] === 0,
+        'avisos'          => $c['avisos'],
+    ], $extra);
+>>>>>>> origin
 }
 
 
@@ -72,13 +91,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $accion = $_POST['accion'] ?? '';
 
+<<<<<<< HEAD
 
+=======
+    /* Refrescar precios/stock y totales antes de abrir el checkout. */
+    if ($accion === 'resumen') {
+        responder(datos_carrito($usuarioId));
+    }
+>>>>>>> origin
 
     if ($accion === 'agregar') {
 
         $servicioId = (int)($_POST['servicio_id'] ?? 0);
 
         $productoId = (int)($_POST['producto_id'] ?? 0);
+<<<<<<< HEAD
 
         $cantidad = max(1, (int)($_POST['cantidad'] ?? 1));
 
@@ -87,6 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tipoItem = '';
 
         $tituloItem = '';
+=======
+        $cantidad   = max(1, (int)($_POST['cantidad'] ?? 1));
+>>>>>>> origin
 
 
 
@@ -115,9 +145,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
         if ($productoId > 0) {
+<<<<<<< HEAD
 
             $stmt = $pdo->prepare('SELECT * FROM productos WHERE id = ? AND activo = 1');
 
+=======
+            $stmt = $pdo->prepare('SELECT id, titulo, precio, stock, activo FROM productos WHERE id = ? AND activo = 1');
+>>>>>>> origin
             $stmt->execute([$productoId]);
 
             $p = $stmt->fetch();
@@ -127,6 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 responder(['ok' => false, 'mensaje' => 'El producto ya no está disponible.', 'tipo' => 'warning']);
 
             }
+<<<<<<< HEAD
 
             $precio = (float)$p['precio'];
 
@@ -138,6 +173,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('SELECT * FROM servicios WHERE id = ? AND activo = 1');
 
+=======
+            $precio     = (float)$p['precio'];
+            $stock      = max(0, (int)$p['stock']);
+            $tituloItem = (string)$p['titulo'];
+
+            if ($precio <= 0) {
+                responder(['ok' => false, 'mensaje' => 'Este producto no tiene precio configurado.', 'tipo' => 'warning']);
+            }
+            if ($stock <= 0) {
+                responder(['ok' => false, 'mensaje' => 'Lo sentimos, ' . $tituloItem . ' está sin existencias.', 'tipo' => 'warning']);
+            }
+
+            /* Tope real: lo que ya hay en el carrito + lo nuevo nunca supera
+               las existencias. Si sobra solicitud se recorta y se avisa. */
+            $stmtChk = $pdo->prepare('SELECT id, cantidad FROM carrito WHERE usuario_id = ? AND producto_id = ?');
+            $stmtChk->execute([$usuarioId, $productoId]);
+            $existente   = $stmtChk->fetch();
+            $enCarrito   = $existente ? max(0, (int)$existente['cantidad']) : 0;
+            $disponible  = $stock - $enCarrito;
+            if ($disponible <= 0) {
+                responder([
+                    'ok'      => false,
+                    'mensaje' => 'Ya tienes las ' . $stock . ' unidad(es) disponibles de ' . $tituloItem . ' en tu carrito.',
+                    'tipo'    => 'warning',
+                ]);
+            }
+            $final = min($cantidad, $disponible);
+            $aviso = $final < $cantidad
+                ? 'Solo quedaban ' . $disponible . ' unidad(es) de ' . $tituloItem . '; se agregó esa cantidad.'
+                : $tituloItem . ' se agregó a tu carrito.';
+
+            if ($existente) {
+                $idItem = (int)$existente['id'];
+                $pdo->prepare('UPDATE carrito SET cantidad = ?, precio_unitario = ? WHERE id = ? AND usuario_id = ?')
+                    ->execute([$final, $precio, $idItem, $usuarioId]);
+            } else {
+                $pdo->prepare('INSERT INTO carrito (usuario_id, servicio_id, producto_id, cantidad, precio_unitario) VALUES (?,?,?,?,?)')
+                    ->execute([$usuarioId, null, $productoId, $final, $precio]);
+                $idItem = (int)$pdo->lastInsertId();
+            }
+
+            responder(datos_carrito($usuarioId, [
+                'mensaje'       => $aviso,
+                'tipo'          => $final < $cantidad ? 'warning' : 'success',
+                'item_id'       => $idItem,
+                'item_cantidad' => $final,
+                'item_subtotal' => carrito_monto($precio * $final, false),
+                'stock_max'     => $stock,
+            ]));
+        }
+
+        if ($servicioId > 0) {
+            $stmt = $pdo->prepare('SELECT id, titulo, precio_desde FROM servicios WHERE id = ? AND activo = 1');
+>>>>>>> origin
             $stmt->execute([$servicioId]);
 
             $s = $stmt->fetch();
@@ -147,6 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 responder(['ok' => false, 'mensaje' => 'El servicio ya no está disponible.', 'tipo' => 'warning']);
 
             }
+<<<<<<< HEAD
 
             $precio = (float)($s['precio_desde'] ?? 0);
 
@@ -218,11 +308,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         ]);
 
+=======
+            $precio     = (float)($s['precio_desde'] ?? 0);
+            $tituloItem = (string)$s['titulo'];
+            if ($precio <= 0) {
+                responder(['ok' => false, 'mensaje' => 'Este servicio no tiene precio configurado.', 'tipo' => 'warning']);
+            }
+            $stmtChk = $pdo->prepare('SELECT id FROM carrito WHERE usuario_id = ? AND servicio_id = ?');
+            $stmtChk->execute([$usuarioId, $servicioId]);
+            $existente = $stmtChk->fetch();
+            if ($existente) {
+                $idItem = (int)$existente['id'];
+                $pdo->prepare('UPDATE carrito SET cantidad = cantidad + ?, precio_unitario = ? WHERE id = ? AND usuario_id = ?')
+                    ->execute([$cantidad, $precio, $idItem, $usuarioId]);
+                $stmtCant = $pdo->prepare('SELECT cantidad FROM carrito WHERE id = ?');
+                $stmtCant->execute([$idItem]);
+                $final = (int)$stmtCant->fetchColumn();
+            } else {
+                $pdo->prepare('INSERT INTO carrito (usuario_id, servicio_id, producto_id, cantidad, precio_unitario) VALUES (?,?,?,?,?)')
+                    ->execute([$usuarioId, $servicioId, null, $cantidad, $precio]);
+                $idItem = (int)$pdo->lastInsertId();
+                $final  = $cantidad;
+            }
+            responder(datos_carrito($usuarioId, [
+                'mensaje'       => $tituloItem . ' se agregó a tu carrito.',
+                'item_id'       => $idItem,
+                'item_cantidad' => $final,
+                'item_subtotal' => carrito_monto($precio * $final, false),
+                'stock_max'     => 0,
+            ]));
+        }
+
+        responder(['ok' => false, 'mensaje' => 'No se especificó qué agregar.', 'tipo' => 'warning']);
+>>>>>>> origin
     }
 
 
 
     if ($accion === 'actualizar') {
+<<<<<<< HEAD
 
         $idItem = (int)($_POST['id'] ?? 0);
 
@@ -230,6 +354,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt = $pdo->prepare('SELECT c.* FROM carrito c WHERE id = ? AND usuario_id = ?');
 
+=======
+        $idItem   = (int)($_POST['id'] ?? 0);
+        $cantidad = max(1, (int)($_POST['cantidad'] ?? 1));
+        $stmt = $pdo->prepare('SELECT c.*, pr.precio AS producto_precio, pr.stock AS producto_stock, pr.activo AS producto_activo,
+                                     sv.precio_desde AS servicio_precio, sv.activo AS servicio_activo
+                              FROM carrito c
+                              LEFT JOIN productos pr ON c.producto_id = pr.id
+                              LEFT JOIN servicios sv ON c.servicio_id = sv.id
+                              WHERE c.id = ? AND c.usuario_id = ?');
+>>>>>>> origin
         $stmt->execute([$idItem, $usuarioId]);
 
         $item = $stmt->fetch();
@@ -240,9 +374,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         }
 
+<<<<<<< HEAD
+=======
+        if ((int)($item['producto_id'] ?? 0) > 0) {
+            $stock = max(0, (int)($item['producto_stock'] ?? 0));
+            $precio = (float)($item['producto_precio'] ?? 0);
+            if ($stock <= 0 || (int)($item['producto_activo'] ?? 0) !== 1 || $precio <= 0) {
+                $pdo->prepare('DELETE FROM carrito WHERE id = ? AND usuario_id = ?')->execute([$idItem, $usuarioId]);
+                responder(datos_carrito($usuarioId, [
+                    'mensaje'       => 'El producto ya no tiene existencias y se quitó del carrito.',
+                    'tipo'          => 'warning',
+                    'item_eliminado'=> $idItem,
+                ]));
+            }
+            $cantidad = min($cantidad, $stock); // Nunca por encima del stock.
+            $pdo->prepare('UPDATE carrito SET cantidad = ?, precio_unitario = ? WHERE id = ? AND usuario_id = ?')
+                ->execute([$cantidad, $precio, $idItem, $usuarioId]);
+            responder(datos_carrito($usuarioId, [
+                'mensaje'       => $cantidad < max(1, (int)($_POST['cantidad'] ?? 1))
+                    ? 'Cantidad ajustada: solo hay ' . $stock . ' unidad(es) disponibles.'
+                    : 'Carrito actualizado.',
+                'tipo'          => $cantidad < max(1, (int)($_POST['cantidad'] ?? 1)) ? 'warning' : 'success',
+                'item_id'       => $idItem,
+                'item_cantidad' => $cantidad,
+                'item_subtotal' => carrito_monto($precio * $cantidad, false),
+                'stock_max'     => $stock,
+            ]));
+        }
+
+>>>>>>> origin
         $pdo->prepare('UPDATE carrito SET cantidad = ? WHERE id = ? AND usuario_id = ?')
 
             ->execute([$cantidad, $idItem, $usuarioId]);
+<<<<<<< HEAD
 
 
 
@@ -272,6 +436,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         ]);
 
+=======
+        responder(datos_carrito($usuarioId, [
+            'mensaje'       => 'Carrito actualizado.',
+            'item_id'       => $idItem,
+            'item_cantidad' => $cantidad,
+            'item_subtotal' => carrito_monto((float)($item['servicio_precio'] ?? $item['precio_unitario']) * $cantidad, false),
+            'stock_max'     => 0,
+        ]));
+>>>>>>> origin
     }
 
 
@@ -281,6 +454,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $idItem = (int)($_POST['id'] ?? 0);
 
         $pdo->prepare('DELETE FROM carrito WHERE id = ? AND usuario_id = ?')->execute([$idItem, $usuarioId]);
+<<<<<<< HEAD
 
 
 
@@ -310,6 +484,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         ]);
 
+=======
+        responder(datos_carrito($usuarioId, [
+            'mensaje'        => 'Ítem eliminado del carrito.',
+            'item_eliminado' => $idItem,
+        ]));
+>>>>>>> origin
     }
 
 
@@ -317,6 +497,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($accion === 'vaciar') {
 
         $pdo->prepare('DELETE FROM carrito WHERE usuario_id = ?')->execute([$usuarioId]);
+<<<<<<< HEAD
 
         responder([
 
@@ -340,10 +521,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         ]);
 
+=======
+        responder(datos_carrito($usuarioId, ['mensaje' => 'Carrito vaciado.']));
+>>>>>>> origin
     }
 
 }
 
+<<<<<<< HEAD
 
 
 /* ---------- Contenido del carrito ---------- */
@@ -375,6 +560,15 @@ foreach ($items as $it) {
     $subtotalGlobal += (float)$it['precio_unitario'] * (int)$it['cantidad'];
 
 }
+=======
+/* ---------- Contenido del carrito ----------
+   Sincronizar al cargar evita que un precio cambiado por el admin o una
+   bajada de stock se siga cobrando con datos viejos. */
+$carrito     = carrito_calcular($usuarioId, true);
+$items       = $carrito['items'];
+$subtotalGlobal = $carrito['subtotal'];
+$unidadesGlobal = $carrito['unidades'];
+>>>>>>> origin
 
 
 
@@ -406,7 +600,15 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
 </div>
 
+<<<<<<< HEAD
 
+=======
+<!-- Avisos de stock / precio recalculados automáticamente -->
+<div id="avisosStock" class="alert alert-warning py-2 px-3 small <?= $carrito['avisos'] ? '' : 'd-none' ?>">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    <span id="avisosStockTexto"><?= $carrito['avisos'] ? e(implode(' ', $carrito['avisos'])) : '' ?></span>
+</div>
+>>>>>>> origin
 
 <?php $vacioClase = $items ? 'd-none' : ''; $llenoClase = $items ? '' : 'd-none'; ?>
 
@@ -473,6 +675,7 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                     <?php foreach ($items as $it): ?>
 
                         <?php
+<<<<<<< HEAD
 
                         $tituloItem = $it['servicio_titulo'] ?: ($it['producto_titulo'] ?: 'Ítem');
 
@@ -486,6 +689,16 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
                         <div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom" id="item-<?= (int)$it['id'] ?>">
 
+=======
+                        $tituloItem = $it['titulo'];
+                        $esServicio = !$it['es_producto'];
+                        $img = $it['imagen'];
+                        $stockItem = $it['stock']; // null en servicios
+                        $subtotal = $it['subtotal'];
+                        $maxCant  = $esServicio ? 9999 : (int)$stockItem;
+                        ?>
+                        <div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom" id="item-<?= (int)$it['id'] ?>" data-precio-item="<?= (float)$it['precio_unitario'] ?>">
+>>>>>>> origin
                             <div class="flex-shrink-0 d-flex align-items-center justify-content-center"
 
                                  style="width:64px;height:64px;border-radius:12px;background:#e8f0fe;object-fit:cover;overflow:hidden;">
@@ -495,9 +708,13 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                                     <img src="../<?= e($img) ?>" alt="<?= e($tituloItem) ?>" style="width:100%;height:100%;object-fit:cover;">
 
                                 <?php else: ?>
+<<<<<<< HEAD
 
                                     <i class="bi <?= e($it['servicio_icono'] ?: 'bi-box-seam') ?> text-primary fs-3"></i>
 
+=======
+                                    <i class="bi <?= e($it['icono'] ?: 'bi-box-seam') ?> text-primary fs-3"></i>
+>>>>>>> origin
                                 <?php endif; ?>
 
                             </div>
@@ -509,6 +726,7 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                                 <small class="text-muted d-block">
 
                                     <?= $esServicio ? '<i class="bi bi-grid me-1"></i>Servicio' : '<i class="bi bi-box-seam me-1"></i>Producto' ?>
+<<<<<<< HEAD
 
                                     · $<?= number_format((float)$it['precio_unitario'], 0) ?> c/u
 
@@ -518,11 +736,24 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
                             <form method="POST" action="carrito.php" class="js-ajax d-flex align-items-center gap-2">
 
+=======
+                                    · <?= e(carrito_monto((float)$it['precio_unitario'], false)) ?> c/u
+                                </small>
+                                <?php if (!$esServicio): ?>
+                                    <small class="d-block mt-1 <?= $stockItem <= 3 ? 'text-danger' : 'text-success' ?>">
+                                        <i class="bi bi-<?= $stockItem <= 3 ? 'exclamation-triangle' : 'check-circle' ?> me-1"></i>
+                                        <?= $stockItem <= 3 ? 'Quedan solo ' . (int)$stockItem . ' disponibles' : 'Quedan ' . (int)$stockItem . ' disponibles' ?>
+                                    </small>
+                                <?php endif; ?>
+                            </div>
+                            <form method="POST" action="carrito.php" class="js-ajax d-flex align-items-center gap-2" data-form-item="<?= (int)$it['id'] ?>">
+>>>>>>> origin
                                 <?= campo_csrf() ?>
 
                                 <input type="hidden" name="accion" value="actualizar">
 
                                 <input type="hidden" name="id" value="<?= (int)$it['id'] ?>">
+<<<<<<< HEAD
 
                                 <div class="input-group input-group-sm" style="width:110px;">
 
@@ -536,6 +767,16 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
                             <b class="text-primary" style="min-width:90px;text-align:right;" data-subtotal-item="<?= (int)$it['id'] ?>">$<?= number_format($subtotal, 0) ?></b>
 
+=======
+                                <div class="input-group input-group-sm" style="width:132px;">
+                                    <button type="button" class="btn btn-outline-secondary" data-cart-menos aria-label="Quitar una unidad" <?= (int)$it['cantidad'] <= 1 ? 'disabled' : '' ?>>−</button>
+                                    <input type="number" name="cantidad" class="form-control text-center" min="1" max="<?= $maxCant ?>" value="<?= (int)$it['cantidad'] ?>" aria-label="Cantidad">
+                                    <button type="button" class="btn btn-outline-secondary" data-cart-mas aria-label="Agregar una unidad" <?= (int)$it['cantidad'] >= $maxCant ? 'disabled' : '' ?>>+</button>
+                                </div>
+                                <button class="btn btn-outline-primary btn-sm" title="Actualizar"><i class="bi bi-arrow-clockwise"></i></button>
+                            </form>
+                            <b class="text-primary" style="min-width:96px;text-align:right;" data-subtotal-item="<?= (int)$it['id'] ?>"><?= e(carrito_monto($subtotal, false)) ?></b>
+>>>>>>> origin
                             <form method="POST" action="carrito.php" onsubmit="return confirm('¿Eliminar este ítem?')" class="js-ajax d-inline">
 
                                 <?= campo_csrf() ?>
@@ -571,11 +812,16 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                 <div class="card-body">
 
                     <div class="d-flex justify-content-between small mb-2">
+<<<<<<< HEAD
 
                         <span class="text-muted">Subtotal (<span data-cart-items><?= count($items) ?></span> ítems · <span data-cart-units><?= array_sum(array_map(fn($i) => (int)$i['cantidad'], $items)) ?></span> unidades)</span>
 
                         <b data-cart-subtotal>$<?= number_format($subtotalGlobal, 0) ?> MXN</b>
 
+=======
+                        <span class="text-muted">Subtotal (<span data-cart-items><?= $carrito['item_count'] ?></span> ítems · <span data-cart-units><?= $unidadesGlobal ?></span> unidades)</span>
+                        <b data-cart-subtotal><?= e(carrito_monto($subtotalGlobal)) ?></b>
+>>>>>>> origin
                     </div>
 
                     <hr>
@@ -583,6 +829,7 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                     <div class="d-flex justify-content-between fs-5 mb-1">
 
                         <span><b>Total</b></span>
+<<<<<<< HEAD
 
                         <b class="text-primary" data-cart-total>$<?= number_format($subtotalGlobal, 0) ?> MXN</b>
 
@@ -594,6 +841,14 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
                     <button class="btn btn-fv w-100 mb-2 <?= count($metodosPago) === 0 ? 'disabled' : '' ?>" <?= count($metodosPago) === 0 ? 'disabled title="No hay métodos de pago configurados"' : '' ?> data-bs-toggle="modal" data-bs-target="#modalCheckout"><i class="bi bi-credit-card me-1"></i>Proceder al pago</button>
 
+=======
+                        <b class="text-primary" data-cart-total><?= e(carrito_monto($subtotalGlobal)) ?></b>
+                    </div>
+                    <small class="text-muted d-block mb-3">Precio y existencias se recalculan al abrir el pago. Puedes enviar tu comprobante después.</small>
+
+                    <?php $pagoBloqueado = count($metodosPago) === 0 || $carrito['item_count'] === 0; ?>
+                    <button type="button" id="btnProcederPago" class="btn btn-fv w-100 mb-2 <?= $pagoBloqueado ? 'disabled' : '' ?>" <?= $pagoBloqueado ? 'disabled title="Agrega productos y verifica los métodos de pago"' : '' ?>><i class="bi bi-credit-card me-1"></i>Proceder al pago</button>
+>>>>>>> origin
                     <?php if (count($metodosPago) === 0): ?>
 
                         <small class="text-danger d-block text-center mb-2"><i class="bi bi-exclamation-triangle me-1"></i>No hay métodos de pago disponibles. Contacta al administrador.</small>
@@ -637,6 +892,7 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                     </div>
 
                     <div class="modal-body">
+<<<<<<< HEAD
 
                         <div class="d-flex justify-content-between py-2 border-bottom mb-3">
 
@@ -644,6 +900,25 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
 
                             <b class="text-primary fs-5">$<?= number_format($subtotalGlobal, 0) ?> MXN</b>
 
+=======
+                        <!-- Resumen de costos: se refresca desde el servidor al abrir el modal -->
+                        <div class="card bg-light border-0 mb-3">
+                            <div class="card-body py-2 px-3 small">
+                                <div class="d-flex justify-content-between">
+                                    <span class="text-muted">Productos (<span data-checkout-items><?= $carrito['item_count'] ?></span> ítems · <span data-checkout-unidades><?= $unidadesGlobal ?></span> unidades)</span>
+                                    <b data-checkout-subtotal-texto><?= e(carrito_monto($subtotalGlobal)) ?></b>
+                                </div>
+                                <div class="d-flex justify-content-between mt-1">
+                                    <span class="text-muted">Subtotal</span>
+                                    <b data-checkout-subtotal><?= e(carrito_monto($subtotalGlobal)) ?></b>
+                                </div>
+                                <hr class="my-2">
+                                <div class="d-flex justify-content-between fs-5">
+                                    <span><b>Total a pagar</b></span>
+                                    <b class="text-primary" data-checkout-total><?= e(carrito_monto($subtotalGlobal)) ?></b>
+                                </div>
+                            </div>
+>>>>>>> origin
                         </div>
 
                         <div class="row g-3">
@@ -695,11 +970,16 @@ $metodosPago = $pdo->query('SELECT * FROM metodos_pago WHERE activo = 1 ORDER BY
                             <div class="col-12">
 
                                 <label class="form-label small fw-semibold">Monto (MXN)</label>
+<<<<<<< HEAD
 
                                 <input type="number" name="monto" class="form-control" min="1" step="0.01" value="<?= number_format($subtotalGlobal, 0, '.', '') ?>" readonly>
 
                                 <small class="text-muted">El monto queda fijo conforme a tu carrito.</small>
 
+=======
+                                <input type="number" name="monto" class="form-control" min="1" step="0.01" value="<?= number_format($subtotalGlobal, 2, '.', '') ?>" readonly data-checkout-monto>
+                                <small class="text-muted">Monto calculado por el servidor con precios y stock vigentes.</small>
+>>>>>>> origin
                             </div>
 
                             <div class="col-12">
@@ -778,16 +1058,163 @@ document.getElementById('metodoPagoSelect')?.addEventListener('change', function
 
 });
 
+<<<<<<< HEAD
 
 
 // Actualizaciones en vivo del carrito (sin recargar la página)
 
+=======
+/* ---------- Utilidades del carrito ---------- */
+function fmtMXN(n) {
+    return '$' + (Number(n) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function ponerTexto(sel, valor) {
+    var el = document.querySelector(sel);
+    if (el && valor != null && el.textContent !== String(valor)) {
+        el.textContent = String(valor);
+        if (window.FV && FV.pulso) FV.pulso(el);
+    }
+}
+function mostrarAvisos(d) {
+    var caja = document.getElementById('avisosStock');
+    var texto = document.getElementById('avisosStockTexto');
+    if (!caja || !texto) return;
+    var lista = Array.isArray(d.avisos) ? d.avisos.slice() : [];
+    if (d.mensaje && d.tipo === 'warning' && lista.indexOf(d.mensaje) === -1) lista.push(d.mensaje);
+    if (lista.length) { texto.textContent = lista.join(' '); caja.classList.remove('d-none'); }
+    else { texto.textContent = ''; caja.classList.add('d-none'); }
+}
+function estadoBotones(fila) {
+    var form = fila.querySelector('[data-form-item]');
+    if (!form) return;
+    var input = form.querySelector('[name="cantidad"]');
+    if (!input) return;
+    var val = parseInt(input.value, 10) || 1;
+    var min = parseInt(input.min, 10) || 1;
+    var max = parseInt(input.max, 10) || 1;
+    var menos = form.querySelector('[data-cart-menos]');
+    var mas = form.querySelector('[data-cart-mas]');
+    if (menos) menos.disabled = val <= min;
+    if (mas) mas.disabled = val >= max;
+}
+function vistaPrevia(fila, cantidad) {
+    var precio = parseFloat(fila.dataset.precioItem || '0') || 0;
+    var sub = fila.querySelector('[data-subtotal-item]');
+    if (sub) sub.textContent = fmtMXN(precio * cantidad);
+}
+
+/* ---------- Controles +/- con debounce (un solo envío al servidor) ---------- */
+var temporizadores = {};
+function programarGuardado(form) {
+    var hidden = form.querySelector('[name="id"]');
+    if (!hidden) return;
+    var id = hidden.value;
+    clearTimeout(temporizadores[id]);
+    temporizadores[id] = setTimeout(function () {
+        if (!form.dataset.enviando && typeof form.requestSubmit === 'function') form.requestSubmit();
+    }, 350);
+}
+
+document.querySelectorAll('[data-form-item]').forEach(function (form) {
+    var fila = form.closest('[id^="item-"]');
+    var input = form.querySelector('[name="cantidad"]');
+
+    form.querySelectorAll('[data-cart-menos], [data-cart-mas]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (!input || btn.disabled) return;
+            var min = parseInt(input.min, 10) || 1;
+            var max = parseInt(input.max, 10) || 1;
+            var val = parseInt(input.value, 10) || min;
+            var delta = btn.hasAttribute('data-cart-mas') ? 1 : -1;
+            input.value = Math.min(max, Math.max(min, val + delta));
+            vistaPrevia(fila, parseInt(input.value, 10));
+            estadoBotones(fila);
+            programarGuardado(form);
+        });
+    });
+
+    if (input) {
+        input.addEventListener('change', function () {
+            var min = parseInt(input.min, 10) || 1;
+            var max = parseInt(input.max, 10) || 1;
+            input.value = Math.min(max, Math.max(min, parseInt(input.value, 10) || min));
+            vistaPrevia(fila, parseInt(input.value, 10));
+            estadoBotones(fila);
+            programarGuardado(form);
+        });
+    }
+
+    var submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.addEventListener('click', function () {
+        var hidden = form.querySelector('[name="id"]');
+        if (hidden) clearTimeout(temporizadores[hidden.value]);
+    });
+
+    estadoBotones(fila);
+});
+
+/* ---------- Resumen del checkout (se actualiza antes de abrir el modal) ---------- */
+function refrescarCheckout(d) {
+    ponerTexto('[data-checkout-items]', d.cart_items);
+    ponerTexto('[data-checkout-unidades]', d.cart_units);
+    ponerTexto('[data-checkout-subtotal]', d.cart_subtotal);
+    ponerTexto('[data-checkout-subtotal-texto]', d.cart_subtotal);
+    ponerTexto('[data-checkout-total]', d.cart_total);
+    var monto = document.querySelector('[data-checkout-monto]');
+    if (monto && d.cart_total_num != null) monto.value = Number(d.cart_total_num).toFixed(2);
+}
+
+var btnProceder = document.getElementById('btnProcederPago');
+if (btnProceder) {
+    btnProceder.addEventListener('click', function () {
+        var fd = new FormData();
+        fd.append('accion', 'resumen');
+        var csrf = document.querySelector('[name="csrf"]');
+        if (csrf) fd.append('csrf', csrf.value);
+
+        var habilitado = !btnProceder.disabled;
+        btnProceder.disabled = true;
+        if (window.FV && FV.cargando) FV.cargando(true);
+
+        fetch('carrito.php', {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (window.FV && FV.cargando) FV.cargando(false);
+            btnProceder.disabled = !habilitado;
+            if (!d.ok) { if (window.FV && FV.overlay) FV.overlay(d); return; }
+            if (d.vacio) {
+                document.getElementById('carritoLleno').classList.add('d-none');
+                document.getElementById('carritoVacio').classList.remove('d-none');
+                if (window.FV && FV.overlay) FV.overlay({
+                    ok: false, mensaje: 'Tu carrito quedó vacío. Agrega productos antes de pagar.', tipo: 'warning'
+                });
+                return;
+            }
+            mostrarAvisos(d);
+            if (window.FV && FV.actualizarResumen) FV.actualizarResumen(d);
+            refrescarCheckout(d);
+            var modalEl = document.getElementById('modalCheckout');
+            if (modalEl && window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }).catch(function () {
+            if (window.FV && FV.cargando) FV.cargando(false);
+            btnProceder.disabled = !habilitado;
+            var modalEl = document.getElementById('modalCheckout');
+            if (modalEl && window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        });
+    });
+}
+
+/* ---------- Actualizaciones en vivo del carrito (sin recargar) ---------- */
+>>>>>>> origin
 document.addEventListener('fv:ajaxok', function (e) {
 
     var d = (e && e.detail) || {};
 
     if (typeof d.cart_count !== 'number') return;
 
+<<<<<<< HEAD
 
 
     var itemEliminado = d.item_eliminado;
@@ -802,11 +1229,21 @@ document.addEventListener('fv:ajaxok', function (e) {
 
             setTimeout(function () { if (fila.parentNode) fila.parentNode.removeChild(fila); }, 320);
 
+=======
+    mostrarAvisos(d);
+
+    if (d.item_eliminado) {
+        var filaElim = document.getElementById('item-' + d.item_eliminado);
+        if (filaElim && filaElim.parentNode) {
+            filaElim.classList.add('fv-fila-sale');
+            setTimeout(function () { if (filaElim.parentNode) filaElim.parentNode.removeChild(filaElim); }, 320);
+>>>>>>> origin
         }
 
     }
 
     if (d.item_id && d.item_subtotal) {
+<<<<<<< HEAD
 
         var sub = document.querySelector('[data-subtotal-item="' + d.item_id + '"]');
 
@@ -814,6 +1251,32 @@ document.addEventListener('fv:ajaxok', function (e) {
 
     }
 
+=======
+        var fila = document.getElementById('item-' + d.item_id);
+        var sub = fila && fila.querySelector('[data-subtotal-item="' + d.item_id + '"]');
+        if (sub) { sub.textContent = d.item_subtotal; if (window.FV && FV.pulso) FV.pulso(sub); }
+        if (fila) {
+            var input = fila.querySelector('[name="cantidad"]');
+            if (input) {
+                if (d.item_cantidad != null) input.value = d.item_cantidad;
+                if (d.stock_max != null) input.max = d.stock_max;
+                var cantidad = parseInt(input.value, 10) || 1;
+                var precio = parseFloat(d.item_subtotal.replace(/[^0-9.]/g, '')) / Math.max(1, cantidad);
+                if (precio > 0) fila.dataset.precioItem = String(precio);
+                estadoBotones(fila);
+            }
+        }
+    }
+
+    var btn = document.getElementById('btnProcederPago');
+    if (btn) {
+        var sinMetodos = !document.getElementById('metodoPagoSelect')
+            || document.getElementById('metodoPagoSelect').options.length <= 1;
+        if (d.vacio || d.cart_items === 0 || sinMetodos) btn.disabled = true;
+        else if (document.getElementById('carritoLleno') && !document.getElementById('carritoLleno').classList.contains('d-none')) btn.disabled = false;
+    }
+
+>>>>>>> origin
     if (d.vacio) {
 
         var lleno = document.getElementById('carritoLleno');
