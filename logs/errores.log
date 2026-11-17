@@ -1,0 +1,2 @@
+[2026-10-16 14:27:49] productos.guardar | PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'referencia' in 'field list' en C:\xampp\htdocs\login_app\admin\productos.php:63
+  datos: {"id":0,"titulo":"Prueba","precio":123,"stock":12,"activo":1,"imagen":"assets\/uploads\/productos\/20261016142749_cac7c1337c3a.png"}
